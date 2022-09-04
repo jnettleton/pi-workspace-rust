@@ -7,15 +7,15 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug executable 'pi-tft-demo-rust'",
+            "name": "Debug executable 'tft-spi-demo'",
             "cargo": {
                 "args": [
                     "build",
-                    "--bin=pi-tft-demo-rust",
-                    "--package=pi-tft-demo-rust"
+                    "--bin=tft-spi-demo",
+                    "--package=tft-spi-demo"
                 ],
                 "filter": {
-                    "name": "pi-tft-demo-rust",
+                    "name": "tft-spi-demo",
                     "kind": "bin"
                 }
             },
@@ -25,16 +25,16 @@
         {
             "type": "lldb",
             "request": "launch",
-            "name": "Debug unit tests in executable 'pi-tft-demo-rust'",
+            "name": "Debug unit tests in executable 'tft-spi-demo'",
             "cargo": {
                 "args": [
                     "test",
                     "--no-run",
-                    "--bin=pi-tft-demo-rust",
-                    "--package=pi-tft-demo-rust"
+                    "--bin=tft-spi-demo",
+                    "--package=tft-spi-demo"
                 ],
                 "filter": {
-                    "name": "pi-tft-demo-rust",
+                    "name": "tft-spi-demo",
                     "kind": "bin"
                 }
             },
