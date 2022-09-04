@@ -218,7 +218,7 @@ impl RpiTftDisplay {
         self.rpi_spi.write_data_delay(&vec![0x01, 0x2C, 0x2D], 10)?;
 
         self.rpi_spi.write_command_delay(ST7735Command::FRMCTR2 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![ST7735Command::FRMCTR2 as u8, 0x01, 0x2C, 0x2D], 0)?;
+        self.rpi_spi.write_data_delay(&vec![0x01, 0x2C, 0x2D], 0)?;
 
         self.rpi_spi.write_command_delay(ST7735Command::FRMCTR3 as u8, 0)?;
         self.rpi_spi.write_data_delay(&vec![0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D], 0)?;
