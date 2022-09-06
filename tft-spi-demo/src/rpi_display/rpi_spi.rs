@@ -32,7 +32,7 @@ impl RpiSpi {
     }
 
     fn create_spi() -> io::Result<Spi> {
-        let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 1_000_000, Mode::Mode0).unwrap();
+        let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 500_000, Mode::Mode0).unwrap();
         spi.set_ss_polarity(Polarity::ActiveLow).unwrap();
 
         Ok(spi)
