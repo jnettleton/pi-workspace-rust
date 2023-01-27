@@ -14,6 +14,7 @@ pub struct RpiSpi {
     tft_tp_cs: OutputPin, // low active
 }
 
+
 impl RpiSpi {
     pub fn new() -> RpiSpi {
         let spi = Self::create_spi().unwrap();
