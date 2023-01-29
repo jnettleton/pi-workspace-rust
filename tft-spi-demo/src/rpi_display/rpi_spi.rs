@@ -5,30 +5,46 @@ use std::{io, thread, time};
 use rppal::gpio::{Gpio, OutputPin};
 use rppal::spi::{Spi, SlaveSelect, Bus, Mode, Polarity};
 
+const TEST: i32 = 1;
+
+const TFT_MAX_BYTES: i32 = 8; //4 * 1024;
+const TFT_RST: u8 = 25;
+const TFT_DC: u8 = 24;
+const TFT_CS_DISPLAY: u8 = 8;
+const TFT_CS_TOUCH: u8 = 7;
+
 #[allow(non_snake_case)]
 pub struct RpiSpi {
     // pub spi_device: Spidev,
     pub spi_device: Spi,
     command: bool,
     tft_dc: OutputPin,
-    tft_tp_cs: OutputPin, // low active
+    tft_rst: OutputPin,
+    tft_cs_display: OutputPin, // low active
+    tft_cs_touch: OutputPin, // low active
 }
-
 
 impl RpiSpi {
     pub fn new() -> RpiSpi {
         let spi = Self::create_spi().unwrap();
 
-        let gpio7 = Gpio::new().unwrap().get(7).unwrap().into_output();
-        let gpio24 = Gpio::new().unwrap().get(24).unwrap().into_output();
+        let tft_dc = Gpio::new().unwrap().get(TFT_DC).unwrap().into_output();
+        let tft_dc = Gpio::new().unwrap().get(TFT_RST).unwrap().into_output();
+        let tft_cs_display = Gpio::new().unwrap().get(TFT_CS_DISPLAY).unwrap().into_output();
+        let tft_cs_touch = Gpio::new().unwrap().get(TFT_CS_TOUCH).unwrap().into_output();
+
         let mut rpi_spi = RpiSpi {
             spi_device: spi,
             command: true,
-            tft_dc: gpio24,
-            tft_tp_cs: gpio7,
+            tft_dc,
+            tft_rst,
+            tft_cs_display,
+            tft_cs_touch,
         };
+
         rpi_spi.dc_set_low().unwrap();
-        rpi_spi.tft_tp_cs.set_high();
+        rpi_spi.tft_cs_touch.set_high();
+
         return rpi_spi;
     }
 
