@@ -1,19 +1,21 @@
 extern crate rppal;
 
-use std::{io, thread, time};
+use std::time::Duration;
+use std::{io, thread};
 
 use rppal::gpio::{Gpio, OutputPin};
-use rppal::spi::{Spi, SlaveSelect, Bus, Mode, Polarity};
+use rppal::spi::{Bus, Mode, Polarity, SlaveSelect, Spi};
 
-const TEST: i32 = 1;
+use super::enums::ST7735Command;
 
-const TFT_MAX_BYTES: i32 = 8; //4 * 1024;
+// const TEST: i32 = 1;
+
+// const TFT_MAX_BYTES: i32 = 8; //4 * 1024;
 const TFT_RST: u8 = 25;
 const TFT_DC: u8 = 24;
 const TFT_CS_DISPLAY: u8 = 8;
 const TFT_CS_TOUCH: u8 = 7;
 
-#[allow(non_snake_case)]
 pub struct RpiSpi {
     // pub spi_device: Spidev,
     pub spi_device: Spi,
@@ -21,17 +23,19 @@ pub struct RpiSpi {
     tft_dc: OutputPin,
     tft_rst: OutputPin,
     tft_cs_display: OutputPin, // low active
-    tft_cs_touch: OutputPin, // low active
+    tft_cs_touch: OutputPin,   // low active
 }
 
 impl RpiSpi {
     pub fn new() -> RpiSpi {
         let spi = Self::create_spi().unwrap();
 
-        let tft_dc = Gpio::new().unwrap().get(TFT_DC).unwrap().into_output();
-        let tft_dc = Gpio::new().unwrap().get(TFT_RST).unwrap().into_output();
-        let tft_cs_display = Gpio::new().unwrap().get(TFT_CS_DISPLAY).unwrap().into_output();
-        let tft_cs_touch = Gpio::new().unwrap().get(TFT_CS_TOUCH).unwrap().into_output();
+        let gpio = Gpio::new().unwrap();
+
+        let tft_dc = gpio.get(TFT_DC).unwrap().into_output();
+        let tft_rst = gpio.get(TFT_RST).unwrap().into_output();
+        let tft_cs_display = gpio.get(TFT_CS_DISPLAY).unwrap().into_output();
+        let tft_cs_touch = gpio.get(TFT_CS_TOUCH).unwrap().into_output();
 
         let mut rpi_spi = RpiSpi {
             spi_device: spi,
@@ -45,7 +49,7 @@ impl RpiSpi {
         rpi_spi.dc_set_low().unwrap();
         rpi_spi.tft_cs_touch.set_high();
 
-        return rpi_spi;
+        rpi_spi
     }
 
     fn create_spi() -> io::Result<Spi> {
@@ -55,9 +59,9 @@ impl RpiSpi {
         Ok(spi)
     }
 
-    pub fn write_reg(&mut self, cmd: u8, byte: u8) -> io::Result<()> {
+    pub fn write_reg(&mut self, cmd: ST7735Command, byte: u8) -> io::Result<()> {
         self.dc_set_low().unwrap();
-        self.spi_device.write(&[cmd]).unwrap();
+        self.spi_device.write(&[cmd as u8]).unwrap();
 
         self.dc_set_high().unwrap();
         self.spi_device.write(&[byte]).unwrap();
@@ -65,25 +69,23 @@ impl RpiSpi {
         Ok(())
     }
 
-    pub fn write_command_delay(&mut self, cmd: u8, delay: u64) -> io::Result<()> {
+    pub fn write_command_delay(&mut self, cmd: ST7735Command, delay: Duration) -> io::Result<()> {
         self.dc_set_low().unwrap();
-        self.spi_device.write(&[cmd]).unwrap();
+        self.spi_device.write(&[cmd as u8]).unwrap();
 
-        if delay != 0 {
-            let ms = time::Duration::from_millis(delay);
-            thread::sleep(ms);
+        if !delay.is_zero() {
+            thread::sleep(delay);
         }
 
         Ok(())
     }
 
-    pub fn write_data_delay(&mut self, data: &[u8], delay: u64) -> io::Result<()> {
+    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> io::Result<()> {
         self.dc_set_high().unwrap();
         self.spi_device.write(data).unwrap();
 
-        if delay != 0 {
-            let ms = time::Duration::from_millis(delay);
-            thread::sleep(ms);
+        if !delay.is_zero() {
+            thread::sleep(delay);
         }
 
         Ok(())
@@ -105,5 +107,11 @@ impl RpiSpi {
         }
 
         Ok(())
+    }
+}
+
+impl Default for RpiSpi {
+    fn default() -> Self {
+        Self::new()
     }
 }
