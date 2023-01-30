@@ -1,9 +1,7 @@
-use std::time::Duration;
-use std::{io, thread};
+use std::{io, time::Duration};
 
 //use gpio::{GpioOut};
 //use gpiod::{Chip, Options, Masked, AsValuesMut, Lines, Direction};
-use rppal::gpio::{Gpio, OutputPin};
 //use rppal::system::DeviceInfo;
 
 use super::enums::{ST7735Command, TFTMode, TFTPcbType};
@@ -19,7 +17,6 @@ pub struct RpiTftDisplay {
     tft_height: u16,
     tft_start_width: u16,
     tft_start_height: u16,
-    tft_rst: OutputPin,
     // tft_buffer: vec!<u8>(),
     // txt_color: u16,
     // txt_bg_color: u16,
@@ -30,7 +27,6 @@ pub struct RpiTftDisplay {
 impl RpiTftDisplay {
     pub fn new() -> Self {
         let rpi_spi = RpiSpi::new();
-        let gpio25 = Gpio::new().unwrap().get(25).unwrap().into_output();
 
         // Self { rpi_spi: rpi_spi, _mode: TFTMode::DISPLAYOFF, pcb_type: TFTPcbType::None, outputs: output_lines }
         Self {
@@ -43,7 +39,6 @@ impl RpiTftDisplay {
             tft_width: 480,
             tft_start_height: 320,
             tft_start_width: 480,
-            tft_rst: gpio25,
             // tft_buffer: [],
             // txt_color: 0xFFFF, // white
             // txt_bg_color: 0x0000, // black
@@ -101,8 +96,8 @@ impl RpiTftDisplay {
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
         self.rpi_spi
             .write_command_delay(ST7735Command::RAMWR, Duration::ZERO)?;
-        for _i in 0..h {
-            for _j in 0..w {
+        for _ in 0..h {
+            for _ in 0..w {
                 self.rpi_spi.write_data_delay(&[hi, lo], Duration::ZERO)?;
             }
         }
@@ -269,12 +264,7 @@ impl RpiTftDisplay {
     }
 
     fn reset_pin(&mut self) {
-        self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
-        self.tft_rst.set_low();
-        thread::sleep(Duration::from_millis(10));
-        self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
+        self.rpi_spi.reset_pin();
     }
 }
 

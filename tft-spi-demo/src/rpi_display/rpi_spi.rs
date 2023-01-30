@@ -4,26 +4,39 @@ use std::time::Duration;
 use std::{io, thread};
 
 use rppal::gpio::{Gpio, OutputPin};
-use rppal::spi::{Bus, Mode, Polarity, SlaveSelect, Spi};
+use rppal::spi::{self, Bus, Mode, SlaveSelect, Spi};
 
 use super::enums::ST7735Command;
 
 // const TEST: i32 = 1;
 
 // const TFT_MAX_BYTES: i32 = 8; //4 * 1024;
+
+/// Reset
+///
+/// GPIO 25
+///
+/// Physical Pin 22
 const TFT_RST: u8 = 25;
+
+/// Command/Data Register Select
+///
+/// GPIO 24
+///
+/// Physical Pin 18
 const TFT_DC: u8 = 24;
-const TFT_CS_DISPLAY: u8 = 8;
-const TFT_CS_TOUCH: u8 = 7;
+
+// const TFT_CS_DISPLAY: u8 = 8;
+// const TFT_CS_TOUCH: u8 = 7;
 
 pub struct RpiSpi {
     // pub spi_device: Spidev,
-    pub spi_device: Spi,
+    spi_device: Spi,
     command: bool,
     tft_dc: OutputPin,
     tft_rst: OutputPin,
-    tft_cs_display: OutputPin, // low active
-    tft_cs_touch: OutputPin,   // low active
+    // tft_cs_display: OutputPin, // low active
+    // tft_cs_touch: OutputPin,   // low active
 }
 
 impl RpiSpi {
@@ -34,27 +47,56 @@ impl RpiSpi {
 
         let tft_dc = gpio.get(TFT_DC).unwrap().into_output();
         let tft_rst = gpio.get(TFT_RST).unwrap().into_output();
-        let tft_cs_display = gpio.get(TFT_CS_DISPLAY).unwrap().into_output();
-        let tft_cs_touch = gpio.get(TFT_CS_TOUCH).unwrap().into_output();
+        // let tft_cs_display = gpio.get(TFT_CS_DISPLAY).unwrap().into_output();
+        // let tft_cs_touch = gpio.get(TFT_CS_TOUCH).unwrap().into_output();
 
-        let mut rpi_spi = RpiSpi {
+        // let mut rpi_spi = RpiSpi {
+        //     spi_device: spi,
+        //     command: true,
+        //     tft_dc,
+        //     tft_rst,
+        //     tft_cs_display,
+        //     tft_cs_touch,
+        // };
+
+        // rpi_spi.dc_set_low().unwrap();
+        // rpi_spi.tft_cs_touch.set_high();
+
+        // rpi_spi
+
+        RpiSpi {
             spi_device: spi,
             command: true,
             tft_dc,
             tft_rst,
-            tft_cs_display,
-            tft_cs_touch,
-        };
-
-        rpi_spi.dc_set_low().unwrap();
-        rpi_spi.tft_cs_touch.set_high();
-
-        rpi_spi
+        }
     }
 
-    fn create_spi() -> io::Result<Spi> {
-        let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 500_000, Mode::Mode0).unwrap();
-        spi.set_ss_polarity(Polarity::ActiveLow).unwrap();
+    /// Creates SPI interface for display with:
+    ///
+    /// `Bus::SPI0`
+    /// - SPI0 MOSI
+    ///   - GPIO 10 / Physical Pin 19
+    ///   - LCD display / SPI data input of touch panel
+    /// - SPI0 MISO
+    ///   - GPIO 9 / Physical Pin 21
+    ///   - SPI data output of touch panel
+    /// - SPI0 SCLK
+    ///   - GPIO 11 / Physical Pin 23
+    ///   - SPI clock signal for LCD display / touch panel
+    ///
+    /// `SlaveSelect::Ss0`
+    /// - SPI0 CE0
+    ///   - GPIO 8 / Physical Pin 24
+    ///   - LCD chip select signal, low level selects LCD
+    ///
+    /// `clock_speed: 500_000`
+    /// - 500 kHz
+    ///
+    /// `Mode::Mode0`
+    fn create_spi() -> spi::Result<Spi> {
+        let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, 500_000, Mode::Mode0)?;
+        // spi.set_ss_polarity(Polarity::ActiveLow)?; // already the default
 
         Ok(spi)
     }
@@ -107,6 +149,15 @@ impl RpiSpi {
         }
 
         Ok(())
+    }
+
+    pub fn reset_pin(&mut self) {
+        self.tft_rst.set_high();
+        thread::sleep(Duration::from_millis(10));
+        self.tft_rst.set_low();
+        thread::sleep(Duration::from_millis(10));
+        self.tft_rst.set_high();
+        thread::sleep(Duration::from_millis(10));
     }
 }
 
