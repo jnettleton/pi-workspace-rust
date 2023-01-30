@@ -7,6 +7,8 @@ use std::{io, time::Duration};
 use super::enums::{ST7735Command, TFTMode, TFTPcbType};
 use super::rpi_spi::RpiSpi;
 
+mod color;
+
 pub struct RpiTftDisplay {
     rpi_spi: RpiSpi,
     mode: TFTMode,
