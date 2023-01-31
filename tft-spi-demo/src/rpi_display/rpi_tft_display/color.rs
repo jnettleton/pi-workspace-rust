@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-/// 6-bit RGB color
+/// 18-bit RGB color
 #[derive(Debug)]
 pub struct Color(u8, u8, u8);
 
@@ -8,7 +8,7 @@ impl Color {
     pub const WHITE: Color = Color(63, 63, 63);
     pub const BLACK: Color = Color(0, 0, 0);
 
-    pub fn from_eight_bit(r: u8, g: u8, b: u8) -> Self {
+    pub fn from_eight_bit_rgb(r: u8, g: u8, b: u8) -> Self {
         Self(
             Self::eight_to_six_bit(r),
             Self::eight_to_six_bit(g),
@@ -26,11 +26,11 @@ impl Color {
             return Err("color input too large");
         }
 
-        let r = (color & 0xFF_00_00) >> 16;
-        let g = (color & 0x00_FF_00) >> 8;
-        let b = color & 0x00_00_FF;
-
-        Ok(Self::from_eight_bit(r as u8, g as u8, b as u8))
+        Ok(Self::from_eight_bit_rgb(
+            (color >> 16) as u8,
+            (color >> 8) as u8,
+            color as u8,
+        ))
     }
 
     pub fn red(&self) -> u8 {
