@@ -1,12 +1,13 @@
 extern crate rppal;
 
-use std::time::Duration;
-use std::{io, thread};
+use std::{thread, time::Duration};
 
-use rppal::gpio::{Gpio, OutputPin};
-use rppal::spi::{self, Bus, Mode, SlaveSelect, Spi};
+use rppal::{
+    gpio::{Gpio, OutputPin},
+    spi::{self, Bus, Mode, SlaveSelect, Spi},
+};
 
-use super::enums::ST7735Command;
+use super::enums::Command;
 
 // const TEST: i32 = 1;
 
@@ -101,54 +102,50 @@ impl RpiSpi {
         Ok(spi)
     }
 
-    pub fn write_reg(&mut self, cmd: ST7735Command, byte: u8) -> io::Result<()> {
-        self.dc_set_low().unwrap();
-        self.spi_device.write(&[cmd as u8]).unwrap();
+    pub fn write_reg(&mut self, cmd: Command, byte: u8) -> spi::Result<usize> {
+        self.dc_set_low();
+        let cmd_bytes = self.spi_device.write(&[cmd as u8])?;
 
-        self.dc_set_high().unwrap();
-        self.spi_device.write(&[byte]).unwrap();
+        self.dc_set_high();
+        let bytes = self.spi_device.write(&[byte])?;
 
-        Ok(())
+        Ok(cmd_bytes + bytes)
     }
 
-    pub fn write_command_delay(&mut self, cmd: ST7735Command, delay: Duration) -> io::Result<()> {
-        self.dc_set_low().unwrap();
-        self.spi_device.write(&[cmd as u8]).unwrap();
+    pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
+        self.dc_set_low();
+        let result = self.spi_device.write(&[cmd as u8]);
 
         if !delay.is_zero() {
             thread::sleep(delay);
         }
 
-        Ok(())
+        result
     }
 
-    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> io::Result<()> {
-        self.dc_set_high().unwrap();
-        self.spi_device.write(data).unwrap();
+    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
+        self.dc_set_high();
+        let result = self.spi_device.write(data);
 
         if !delay.is_zero() {
             thread::sleep(delay);
         }
 
-        Ok(())
+        result
     }
 
-    fn dc_set_low(&mut self) -> io::Result<()> {
+    fn dc_set_low(&mut self) {
         if !self.command {
             self.tft_dc.set_low();
             self.command = true;
         }
-
-        Ok(())
     }
 
-    fn dc_set_high(&mut self) -> io::Result<()> {
+    fn dc_set_high(&mut self) {
         if self.command {
             self.tft_dc.set_high();
             self.command = false;
         }
-
-        Ok(())
     }
 
     pub fn reset_pin(&mut self) {

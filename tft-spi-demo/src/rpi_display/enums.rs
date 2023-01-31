@@ -1,5 +1,5 @@
 #[allow(clippy::upper_case_acronyms)]
-pub enum ST7735Command {
+pub enum Command {
     // NOP = 0x00, // non operation
     SWRESET = 0x01, // soft reset
     // RDDID = 0x04, // read device id
@@ -54,31 +54,31 @@ pub enum ST7735Command {
 //     MADCTL_MV = 0x20,
 //     MADCTL_ML = 0x10,
 // }
-pub enum ST7735Color {
-    BLACK = 0x0000,
-    BLUE = 0x001F,
-    RED = 0xF800,
-    GREEN = 0x07E0,
-    CYAN = 0x07FF,
-    MAGENTA = 0xF81F,
-    YELLOW = 0xFFE0,
-    WHITE = 0xFFFF,
-    TAN = 0xED01,
-    GREY = 0x9CD1,
-    BROWN = 0x6201,
-}
-pub enum TFTMode {
-    // NORMAL,
-    // PARTIAL,
-    // IDLE,
-    // SLEEP,
-    // INVERT,
-    // DISPLAYON,
-    DISPLAYOFF,
-}
-pub enum TFTPcbType {
-    Red,
-    Green,
-    Black,
-    None,
-}
+// pub enum ST7735Color {
+//     BLACK = 0x0000,
+//     BLUE = 0x001F,
+//     RED = 0xF800,
+//     GREEN = 0x07E0,
+//     CYAN = 0x07FF,
+//     MAGENTA = 0xF81F,
+//     YELLOW = 0xFFE0,
+//     WHITE = 0xFFFF,
+//     TAN = 0xED01,
+//     GREY = 0x9CD1,
+//     BROWN = 0x6201,
+// }
+// pub enum TFTMode {
+//     // NORMAL,
+//     // PARTIAL,
+//     // IDLE,
+//     // SLEEP,
+//     // INVERT,
+//     // DISPLAYON,
+//     DISPLAYOFF,
+// }
+// pub enum TFTPcbType {
+//     Red,
+//     Green,
+//     Black,
+//     None,
+// }
