@@ -7,6 +7,9 @@ pub struct Color(u8, u8, u8);
 impl Color {
     pub const WHITE: Color = Color(63, 63, 63);
     pub const BLACK: Color = Color(0, 0, 0);
+    pub const RED: Color = Color(63, 0, 0);
+    pub const GREEN: Color = Color(0, 63, 0);
+    pub const BLUE: Color = Color(0, 0, 63);
 
     pub fn from_eight_bit_rgb(r: u8, g: u8, b: u8) -> Self {
         Self(
@@ -34,7 +37,7 @@ impl Color {
     }
 
     pub fn red(&self) -> u8 {
-        self.0
+        self.2
     }
 
     pub fn green(&self) -> u8 {
@@ -42,7 +45,7 @@ impl Color {
     }
 
     pub fn blue(&self) -> u8 {
-        self.2
+        self.0
     }
 
     fn eight_to_six_bit(input: u8) -> u8 {

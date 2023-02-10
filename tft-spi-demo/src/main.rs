@@ -2,25 +2,17 @@ pub mod rpi_display;
 
 use std::{error::Error, result};
 
-use rpi_display::rpi_tft_display::{color::Color, Result, RpiTftDisplay};
+use rpi_display::rpi_tft_display::{color::Color, RpiTftDisplay};
 
 fn main() -> result::Result<(), Box<dyn Error>> {
     let mut display = RpiTftDisplay::new();
     display.initialize()?;
 
-    for _ in 0..3 {
-        blink_display(&mut display)?;
-    }
-
-    Ok(())
-}
-
-fn blink_display(display: &mut RpiTftDisplay) -> Result<()> {
     display.fill_screen(Color::WHITE)?;
-    // thread::sleep(Duration::from_secs(1));
-
+    display.fill_screen(Color::RED)?;
+    display.fill_screen(Color::GREEN)?;
+    display.fill_screen(Color::BLUE)?;
     display.fill_screen(Color::BLACK)?;
-    // thread::sleep(Duration::from_secs(1));
 
     Ok(())
 }
