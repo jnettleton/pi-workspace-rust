@@ -2,8 +2,9 @@ pub mod color;
 
 pub mod error;
 
-use std::{io, result, time::Duration};
+use std::{iter, result, thread, time::Duration};
 
+use itertools::Itertools;
 use rppal::spi;
 
 use self::{color::Color, error::Error};
@@ -40,8 +41,8 @@ impl RpiTftDisplay {
             // pcb_type: TFTPcbType::None,
             // cursor_x: 0,
             // cursor_y: 0,
-            tft_height: 320,
-            tft_width: 480,
+            tft_height: 480,
+            tft_width: 320,
             // tft_start_height: 320,
             // tft_start_width: 480,
             // tft_buffer: [],
@@ -96,14 +97,15 @@ impl RpiTftDisplay {
         }
 
         let color = [color.red() << 2, color.green() << 2, color.blue() << 2];
+        let color_iter = iter::repeat(color)
+            .take(h as usize * w as usize)
+            .flatten()
+            .chunks(4096);
 
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
-        self.rpi_spi
-            .write_command_delay(Command::MemoryWrite, Duration::ZERO)?;
-        for _ in 0..h {
-            for _ in 0..w {
-                self.rpi_spi.write_data_delay(&color, Duration::ZERO)?;
-            }
+        self.rpi_spi.write_command(Command::MemoryWrite)?;
+        for color in &color_iter {
+            self.rpi_spi.write_data(&color.collect_vec())?;
         }
 
         Ok(())
@@ -138,28 +140,24 @@ impl RpiTftDisplay {
             });
         }
 
-        self.rpi_spi
-            .write_command_delay(Command::ColumnAddressSet, Duration::ZERO)?;
-        self.rpi_spi.write_data_delay(
+        self.rpi_spi.write_reg(
+            Command::ColumnAddressSet,
             &[
                 (column_start >> 8) as u8,
                 column_start as u8,
                 (column_end >> 8) as u8,
                 column_end as u8,
             ],
-            Duration::ZERO,
         )?;
 
-        self.rpi_spi
-            .write_command_delay(Command::RowAddressSet, Duration::ZERO)?;
-        self.rpi_spi.write_data_delay(
+        self.rpi_spi.write_reg(
+            Command::RowAddressSet,
             &[
                 (row_start >> 8) as u8,
                 row_start as u8,
                 (row_end >> 8) as u8,
                 row_end as u8,
             ],
-            Duration::ZERO,
         )?;
 
         Ok(())
@@ -180,10 +178,6 @@ impl RpiTftDisplay {
         Ok(())
     }
 
-    fn _cmd1(&self) -> io::Result<()> {
-        Ok(())
-    }
-
     fn init_display(&mut self) -> spi::Result<()> {
         // Soft reset to set defaults
         self.rpi_spi
@@ -199,44 +193,35 @@ impl RpiTftDisplay {
 
         // Sets normal mode frame rate to 30Hz, division ratio to fosc, 17 clocks per line
         self.rpi_spi
-            .write_command_delay(Command::FrameRateControlNormal, Duration::ZERO)?;
-        self.rpi_spi
-            .write_data_delay(&[(frs << 4) | div, rtn], Duration::from_millis(10))?;
+            .write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn])?;
+        thread::sleep(Duration::from_millis(10));
 
         // Sets idle mode frame rate, division ratio to fosc, 17 clocks per line
         self.rpi_spi
-            .write_command_delay(Command::FrameRateControlIdle, Duration::ZERO)?;
-        self.rpi_spi.write_data_delay(&[div, rtn], Duration::ZERO)?;
+            .write_reg(Command::FrameRateControlIdle, &[div, rtn])?;
 
         // Sets partial mode frame rate, division ratio to fosc, 17 clocks per line
         self.rpi_spi
-            .write_command_delay(Command::FrameRateControlPartial, Duration::ZERO)?;
-        self.rpi_spi.write_data_delay(&[div, rtn], Duration::ZERO)?;
+            .write_reg(Command::FrameRateControlPartial, &[div, rtn])?;
 
         // Software reset sets display inversion off
-        // self.rpi_spi
-        //     .write_command_delay(Command::DisplayInversionOff, Duration::ZERO)?;
-        // self.rpi_spi
-        //     .write_command_delay(Command::DisplayInversionControl, Duration::ZERO)?;
+        // self.rpi_spi.write_command(Command::DisplayInversionOff)?;
         // let zinv = false as u8; // disable Z-inversion
         // let dinv = 0b00; // column inversion
         // self.rpi_spi
-        //     .write_data_delay(&[(zinv << 4) | dinv], Duration::ZERO)?;
+        //     .write_reg(Command::DisplayInversionControl, &[(zinv << 4) | dinv])?;
 
         // Sets positive/negative gamma to +/- 4.4375
-        self.rpi_spi
-            .write_command_delay(Command::PowerControl1, Duration::ZERO)?;
         let vrh1 = 0x0E; //  4.4375
         let vrh2 = 0x0E; // -4.4375
         self.rpi_spi
-            .write_data_delay(&[vrh1, vrh2], Duration::from_millis(10))?;
+            .write_reg(Command::PowerControl1, &[vrh1, vrh2])?;
+        thread::sleep(Duration::from_millis(10));
 
         // Sets operating voltage step-up factor
-        self.rpi_spi
-            .write_command_delay(Command::PowerControl2, Duration::ZERO)?;
         let bt = 0x0; // VGH: Vci1 * 6, VGL: Vci1 * 5
         let vc = 0x0; // External VCI
-        self.rpi_spi.write_data_delay(&[bt, vc], Duration::ZERO)?;
+        self.rpi_spi.write_reg(Command::PowerControl2, &[bt, vc])?;
 
         let dc0 = 0b011; // 1 H
         let dc1 = 0b011; // 4 H
@@ -244,66 +229,50 @@ impl RpiTftDisplay {
 
         // Sets operating frequencies of step-up circuit in normal mode
         self.rpi_spi
-            .write_command_delay(Command::PowerControl3, Duration::ZERO)?;
-        self.rpi_spi
-            .write_data_delay(&power_ctrl_cmd, Duration::ZERO)?;
+            .write_reg(Command::PowerControl3, &power_ctrl_cmd)?;
 
         // Sets operating frequencies of step-up circuit in idle mode
         self.rpi_spi
-            .write_command_delay(Command::PowerControl4, Duration::ZERO)?;
-        self.rpi_spi
-            .write_data_delay(&power_ctrl_cmd, Duration::ZERO)?;
+            .write_reg(Command::PowerControl4, &power_ctrl_cmd)?;
 
         // Sets operating frequencies of step-up circuit in partial mode
         self.rpi_spi
-            .write_command_delay(Command::PowerControl5, Duration::ZERO)?;
-        self.rpi_spi
-            .write_data_delay(&power_ctrl_cmd, Duration::ZERO)?;
+            .write_reg(Command::PowerControl5, &power_ctrl_cmd)?;
 
-        // self.rpi_spi
-        //     .write_command_delay(Command::VcomControl1, Duration::ZERO)?;
-        // self.rpi_spi
-        //     .write_data_delay(&[0x0E], Duration::from_millis(10))?;
+        // self.rpi_spi.write_reg(Command::VcomControl1, &[0x0E])?;
+        // thread::sleep(Duration::from_millis(10));
 
         // Set by software reset
         // // Sets pixel format to 18 bits / pixel
-        // self.rpi_spi
-        //     .write_command_delay(Command::InterfacePixelFormat, Duration::ZERO)?;
         // let dpi = 0b0110; // 18 bits / pixel
         // let dbi = 0b110; // 18 bits / pixel
         // self.rpi_spi
-        //     .write_data_delay(&[(dpi << 4) | dbi], Duration::from_millis(10))?;
+        //     .write_reg(Command::InterfacePixelFormat, &[(dpi << 4) | dbi])?;
+        // thread::sleep(Duration::from_millis(10));
 
         // 480 x 320
         self.rpi_spi
-            .write_command_delay(Command::ColumnAddressSet, Duration::ZERO)?; //0-479
-        self.rpi_spi
-            .write_data_delay(&[0x00, 0x00, 0x01, 0xDF], Duration::ZERO)?; //0-479
+            .write_reg(Command::ColumnAddressSet, &[0x00, 0x00, 0x01, 0xDF])?; //0-479
 
         self.rpi_spi
-            .write_command_delay(Command::RowAddressSet, Duration::ZERO)?; //0-319
-        self.rpi_spi
-            .write_data_delay(&[0x00, 0x00, 0x01, 0x3F], Duration::ZERO)?; //0-319
+            .write_reg(Command::RowAddressSet, &[0x00, 0x00, 0x01, 0x3F])?; //0-319
 
-        // self.rpi_spi
-        //     .write_command_delay(Command::PositiveGammaControl, Duration::ZERO)?;
-        // self.rpi_spi.write_data_delay(
+        // self.rpi_spi.write_reg(
+        //     Command::PositiveGammaControl,
         //     &[
         //         0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D, 0x29, 0x25, 0x2B, 0x39, 0x00, 0x01,
         //         0x03, 0x10,
         //     ],
-        //     Duration::ZERO,
         // )?;
 
-        // self.rpi_spi
-        //     .write_command_delay(Command::NegativeGammaControl, Duration::ZERO)?;
-        // self.rpi_spi.write_data_delay(
+        // self.rpi_spi.write_reg(
+        //     Command::NegativeGammaControl,
         //     &[
         //         0x3B, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00,
         //         0x02, 0x10,
         //     ],
-        //     Duration::from_millis(10),
         // )?;
+        // thread::sleep(Duration::from_millis(10));
 
         self.rpi_spi
             .write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;

@@ -6,6 +6,7 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+itertools = "0.10.5"
 #spidev = "0.5"
 #gpio = "0.4"
 #gpiod = "0.2"

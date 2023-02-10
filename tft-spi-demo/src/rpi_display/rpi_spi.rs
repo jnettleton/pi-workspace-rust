@@ -1,7 +1,8 @@
 extern crate rppal;
 
-use std::{thread, time::Duration};
+use std::{iter, thread, time::Duration};
 
+use itertools::Itertools;
 use rppal::{
     gpio::{Gpio, OutputPin},
     spi::{self, Bus, Mode, SlaveSelect, Spi},
@@ -102,19 +103,26 @@ impl RpiSpi {
         Ok(spi)
     }
 
-    pub fn write_reg(&mut self, cmd: Command, byte: u8) -> spi::Result<usize> {
-        self.dc_set_low();
-        let cmd_bytes = self.spi_device.write(&[cmd as u8])?;
+    pub fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize> {
+        let cmd_bytes = self.write_command(cmd)?;
 
-        self.dc_set_high();
-        let bytes = self.spi_device.write(&[byte])?;
+        // 16-bit parameters
+        let data = iter::once(0)
+            .chain(Itertools::intersperse(data.iter().copied(), 0))
+            .collect_vec();
+
+        let bytes = self.write_data(&data)?;
 
         Ok(cmd_bytes + bytes)
     }
 
-    pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
+    pub fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
         self.dc_set_low();
-        let result = self.spi_device.write(&[cmd as u8]);
+        self.spi_device.write(&[0, cmd as u8])
+    }
+
+    pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
+        let result = self.write_command(cmd);
 
         if !delay.is_zero() {
             thread::sleep(delay);
@@ -123,9 +131,13 @@ impl RpiSpi {
         result
     }
 
-    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
+    pub fn write_data(&mut self, data: &[u8]) -> spi::Result<usize> {
         self.dc_set_high();
-        let result = self.spi_device.write(data);
+        self.spi_device.write(data)
+    }
+
+    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
+        let result = self.write_data(data);
 
         if !delay.is_zero() {
             thread::sleep(delay);
