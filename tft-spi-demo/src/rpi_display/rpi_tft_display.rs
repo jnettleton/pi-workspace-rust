@@ -1,110 +1,28 @@
-use std::{io, thread};
-use std::time::Duration;
+pub mod color;
 
-//use gpio::{GpioOut};
-//use gpiod::{Chip, Options, Masked, AsValuesMut, Lines, Direction};
-use rppal::gpio::{Gpio, OutputPin};
-//use rppal::system::DeviceInfo;
+pub mod error;
 
-use super::rpi_spi::RpiSpi;
+use std::{iter, result, thread, time::Duration};
 
-enum ST7735Command {
-    // NOP = 0x00, // non operation
-    SWRESET = 0x01, // soft reset
-    // RDDID = 0x04, // read device id
-    // RDDST = 0x09,
-    // SLPIN = 0x10, //sleep on
-    SLPOUT = 0x11, // sleep off
-    // PTLON = 0x12, // partial mode
-    NORON = 0x13, // normal display
-    INVOFF = 0x20, // display invert off
-    // INVON = 0x21, // display invert on
-    // DISPOFF = 0x28, // display off
-    DISPON = 0x29, // display on
-    // TFT_IDLE_MDODE_ON = 0x39, // idle mode on
-    // TFT_IDLE_MODE_OFF = 0x38, // idle mode off
-    CASET = 0x2A, // column address set
-    RASET = 0x2B, //row/page address set
-    RAMWR = 0x2C, // memory write
-    // RAMRD = 0x2E, // memory read
-    // PTLAR = 0x30, // partial area
-    // VSCRDEF = 0x33, // vertical scroll def
-    COLMOD = 0x3A, // interface pixel format
-    // MADCTL = 0x36, // memory access control
-    // VSCRSADD = 0x37, //vertical access control
+use itertools::Itertools;
+use rppal::spi;
 
-    // frame rate control
-    FRMCTR1 = 0xB1, // normal
-    FRMCTR2 = 0xB2, // idle
-    FRMCTR3 = 0xB3, // partial
+use self::{color::Color, error::Error};
 
-    INVCTR = 0xB4, // display inversion control
-    // DISSET5 = 0xB6, // display function set
+use super::{enums::Command, rpi_spi::RpiSpi};
 
-    // power control
-    PWCTR1 = 0xC0,
-    PWCTR2 = 0xC1,
-    PWCTR3 = 0xC2,
-    PWCTR4 = 0xC3,
-    PWCTR5 = 0xC4,
-    // PWCTR6 = 0xFC,
-
-    VMCTR1 = 0xC5, // VCOM control 1
-
-    // RDDID1 = 0xDA,
-    // RDDID2 = 0xDB,
-    // RDDID3 = 0xDC,
-    // RDDID4 = 0xDD,
-
-    GMCTRP1 = 0xE0, // positive gamma correction setting
-    GMCTRN1 = 0xE1, // negative gamma correction setting
-}
-// enum ST7335MadControl {
-//     MADCTL_MY = 0x80,
-//     MADCTL_MX = 0x40,
-//     MADCTL_MV = 0x20,
-//     MADCTL_ML = 0x10,
-// }
-pub enum ST7735Color {
-    BLACK = 0x0000,
-    BLUE = 0x001F,
-    RED = 0xF800,
-    GREEN = 0x07E0,
-    CYAN = 0x07FF,
-    MAGENTA = 0xF81F,
-    YELLOW = 0xFFE0,
-    WHITE = 0xFFFF,
-    TAN = 0xED01,
-    GREY = 0x9CD1,
-    BROWN = 0x6201
-}
-pub enum TFTMode {
-    // NORMAL,
-    // PARTIAL,
-    // IDLE,
-    // SLEEP,
-    // INVERT,
-    // DISPLAYON,
-    DISPLAYOFF,
-}
-pub enum TFTPcbType {
-    Red,
-    Green,
-    Black,
-    None
-}
+pub type Result<T> = result::Result<T, Error>;
 
 pub struct RpiTftDisplay {
     rpi_spi: RpiSpi,
-    _mode: TFTMode,
-    pcb_type: TFTPcbType,
+    // mode: TFTMode,
+    // pcb_type: TFTPcbType,
     // cursor_x: u16,
     // cursor_y: u16,
     tft_width: u16,
     tft_height: u16,
-    tft_start_width: u16,
-    tft_start_height: u16,
-    tft_rst: OutputPin,
+    // tft_start_width: u16,
+    // tft_start_height: u16,
     // tft_buffer: vec!<u8>(),
     // txt_color: u16,
     // txt_bg_color: u16,
@@ -115,20 +33,18 @@ pub struct RpiTftDisplay {
 impl RpiTftDisplay {
     pub fn new() -> Self {
         let rpi_spi = RpiSpi::new();
-        let gpio25 = Gpio::new().unwrap().get(25).unwrap().into_output();
 
-        // Self { rpi_spi: rpi_spi, _mode: TFTMode::DISPLAYOFF, pcb_type: TFTPcbType::None, outputs: output_lines }
-        Self { 
-            rpi_spi: rpi_spi,
-            _mode: TFTMode::DISPLAYOFF,
-            pcb_type: TFTPcbType::None,
+        // Self { rpi_spi: rpi_spi, _mode: TFTMode::DisplayOff, pcb_type: TFTPcbType::None, outputs: output_lines }
+        Self {
+            rpi_spi,
+            // mode: TFTMode::DisplayOff,
+            // pcb_type: TFTPcbType::None,
             // cursor_x: 0,
             // cursor_y: 0,
-            tft_height: 320,
-            tft_width: 480,
-            tft_start_height: 320,
-            tft_start_width: 480,
-            tft_rst: gpio25,
+            tft_height: 480,
+            tft_width: 320,
+            // tft_start_height: 320,
+            // tft_start_width: 480,
             // tft_buffer: [],
             // txt_color: 0xFFFF, // white
             // txt_bg_color: 0x0000, // black
@@ -137,152 +53,246 @@ impl RpiTftDisplay {
         }
     }
 
-    pub fn init_screen_size(&mut self, x_offset: u16, y_offset: u16, width: u16, height: u16) -> io::Result<()> {
-        self.x_start = x_offset;
-        self.y_start = y_offset;
-        self.tft_width = width;
-        self.tft_start_width = width;
-        self.tft_height = height;
-        self.tft_start_height = height;
+    // pub fn init_screen_size(
+    //     &mut self,
+    //     x_offset: u16,
+    //     y_offset: u16,
+    //     width: u16,
+    //     height: u16,
+    // ) -> io::Result<()> {
+    //     self.x_start = x_offset;
+    //     self.y_start = y_offset;
+    //     self.tft_width = width;
+    //     self.tft_start_width = width;
+    //     self.tft_height = height;
+    //     self.tft_start_height = height;
 
-        // let bufsize = width * height * 2;
-        // let buffer: vec![u8; &bufsize] = [];
-        // self.tft_buffer = buffer;
+    //     // let buf_size = width * height * 2;
+    //     // let buffer: vec![u8; &buf_size] = [];
+    //     // self.tft_buffer = buffer;
 
-        Ok(())
+    //     Ok(())
+    // }
+
+    pub fn fill_screen(&mut self, color: Color) -> Result<()> {
+        self.fill_rectangle(0, 0, self.tft_width, self.tft_height, color)
     }
 
-    pub fn fill_screen(&mut self, color: u16) -> io::Result<()> {
-        self.fill_rectangle(0, 0, self.tft_width, self.tft_height, color)?;
-        Ok(())
-    }
+    pub fn fill_rectangle(
+        &mut self,
+        x: u16,
+        y: u16,
+        mut w: u16,
+        mut h: u16,
+        color: Color,
+    ) -> Result<()> {
+        if x >= self.tft_width || y >= self.tft_height {
+            return Ok(());
+        };
+        if (x + w - 1) >= self.tft_height {
+            w = self.tft_width - x;
+        }
+        if (y + h - 1) >= self.tft_height {
+            h = self.tft_height - y
+        }
 
-    pub fn fill_rectangle(&mut self, x: u16, y: u16, mut w: u16, mut h: u16, color: u16) -> io::Result<()> {
-        if x >= self.tft_width || y >= self.tft_height { return Ok(()) };
-        if (x + w - 1) >= self.tft_height { w = self.tft_width - x; }
-        if (y + h - 1) >= self.tft_height { h = self.tft_height - y }
-        let hi: u8 = (color >> 8) as u8;
-        let lo: u8 = color as u8;
+        let color = [color.red() << 2, color.green() << 2, color.blue() << 2];
+        let color_iter = iter::repeat(color)
+            .take(h as usize * w as usize)
+            .flatten()
+            .chunks(4096);
 
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
-        self.rpi_spi.write_command_delay(ST7735Command::RAMWR as u8, 0)?;
-        for _i in 0..h {
-            for _j in 0..w {
-                self.rpi_spi.write_data_delay(&vec![hi, lo], 0)?;
-            }
+        self.rpi_spi.write_command(Command::MemoryWrite)?;
+        for color in &color_iter {
+            self.rpi_spi.write_data(&color.collect_vec())?;
         }
 
         Ok(())
     }
 
-    pub fn set_addr_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> io::Result<()> {
-        let mut value0 = x0 + self.x_start;
-        let mut value1 = x1 + self.x_start;
-        self.rpi_spi.write_command_delay(ST7735Command::CASET as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![(value0 >> 8) as u8, value0 as u8, (value1 >> 8) as u8, value1 as u8], 0)?;
+    pub fn set_addr_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result<()> {
+        let column_start = x0 + self.x_start;
+        let column_end = x1 + self.x_start;
 
-        value0 = y0 + self.y_start;
-        value1 = y1 + self.y_start;
-        self.rpi_spi.write_command_delay(ST7735Command::RASET as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![(value0 >> 8) as u8, value0 as u8, (value1 >> 8) as u8, value1 as u8], 0)?;
+        let row_start = y0 + self.y_start;
+        let row_end = y1 + self.y_start;
+
+        if column_start >= self.tft_width {
+            return Err(Error::Size {
+                given: column_start,
+                max: self.tft_width,
+            });
+        } else if column_end >= self.tft_width {
+            return Err(Error::Size {
+                given: column_end,
+                max: self.tft_width,
+            });
+        } else if row_start >= self.tft_height {
+            return Err(Error::Size {
+                given: row_start,
+                max: self.tft_height,
+            });
+        } else if row_end >= self.tft_height {
+            return Err(Error::Size {
+                given: row_end,
+                max: self.tft_height,
+            });
+        }
+
+        self.rpi_spi.write_reg(
+            Command::ColumnAddressSet,
+            &[
+                (column_start >> 8) as u8,
+                column_start as u8,
+                (column_end >> 8) as u8,
+                column_end as u8,
+            ],
+        )?;
+
+        self.rpi_spi.write_reg(
+            Command::RowAddressSet,
+            &[
+                (row_start >> 8) as u8,
+                row_start as u8,
+                (row_end >> 8) as u8,
+                row_end as u8,
+            ],
+        )?;
 
         Ok(())
     }
 
-    pub fn set_cursor(&mut self) -> io::Result<()> {
-        Ok(())
-    }
+    // pub fn set_cursor(&mut self) -> io::Result<()> {
+    //     Ok(())
+    // }
 
-    pub fn init_pcb_type(&mut self, tft_pcb_type: TFTPcbType) -> io::Result<()> {
-        self.pcb_type = tft_pcb_type;
-        Ok(())
-    }
-    pub fn initialize(&mut self) -> io::Result<()> {
-        // https://github.com/gavinlyonsrepo/ST7735_TFT_RPI/blob/main/src/ST7735_TFT.cpp
-        // https://github.com/maudeve-it/ST7735S-STM32/blob/main/SOURCE/z_displ_ST7735.c
+    // pub fn init_pcb_type(&mut self, tft_pcb_type: TFTPcbType) {
+    //     self.pcb_type = tft_pcb_type;
+    // }
 
+    pub fn initialize(&mut self) -> spi::Result<()> {
         self.reset_pin();
-
-        self.cmd2_none()?;
-        self.pcb_type = TFTPcbType::None;
+        self.init_display()?;
+        // self.pcb_type = TFTPcbType::None;
         Ok(())
     }
-    fn _cmd1(&self) -> io::Result<()> {
-        Ok(())
-    }
-    fn cmd2_none(&mut self) -> io::Result<()> {
-        self.rpi_spi.write_command_delay(ST7735Command::SWRESET as u8, 150)?;
-        self.rpi_spi.write_command_delay(ST7735Command::SLPOUT as u8, 500)?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::FRMCTR1 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x01, 0x2C, 0x2D], 10)?;
+    fn init_display(&mut self) -> spi::Result<()> {
+        // Soft reset to set defaults
+        self.rpi_spi
+            .write_command_delay(Command::SoftReset, Duration::from_millis(150))?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::FRMCTR2 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x01, 0x2C, 0x2D], 0)?;
+        // Soft reset sets Sleep In
+        self.rpi_spi
+            .write_command_delay(Command::SleepOut, Duration::from_millis(500))?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::FRMCTR3 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x01, 0x2C, 0x2D, 0x01, 0x2C, 0x2D], 0)?;
+        let frs = 0b0001; // 30Hz
+        let div = 0b00; // fosc
+        let rtn = 0b10001; // 17 clocks per line
 
-        self.rpi_spi.write_command_delay(ST7735Command::INVCTR as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x07], 0)?;
+        // Sets normal mode frame rate to 30Hz, division ratio to fosc, 17 clocks per line
+        self.rpi_spi
+            .write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn])?;
+        thread::sleep(Duration::from_millis(10));
 
-        self.rpi_spi.write_command_delay(ST7735Command::PWCTR1 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0xA2, 0x02, 0x84], 10)?;
+        // Sets idle mode frame rate, division ratio to fosc, 17 clocks per line
+        self.rpi_spi
+            .write_reg(Command::FrameRateControlIdle, &[div, rtn])?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::PWCTR2 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0xC5], 0)?;
+        // Sets partial mode frame rate, division ratio to fosc, 17 clocks per line
+        self.rpi_spi
+            .write_reg(Command::FrameRateControlPartial, &[div, rtn])?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::PWCTR3 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x0A, 0x00], 0)?;
+        // Software reset sets display inversion off
+        // self.rpi_spi.write_command(Command::DisplayInversionOff)?;
+        // let zinv = false as u8; // disable Z-inversion
+        // let dinv = 0b00; // column inversion
+        // self.rpi_spi
+        //     .write_reg(Command::DisplayInversionControl, &[(zinv << 4) | dinv])?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::PWCTR4 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x8A, 0x2A], 0)?;
+        // Sets positive/negative gamma to +/- 4.4375
+        let vrh1 = 0x0E; //  4.4375
+        let vrh2 = 0x0E; // -4.4375
+        self.rpi_spi
+            .write_reg(Command::PowerControl1, &[vrh1, vrh2])?;
+        thread::sleep(Duration::from_millis(10));
 
-        self.rpi_spi.write_command_delay(ST7735Command::PWCTR5 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x8A, 0xEE], 0)?;
+        // Sets operating voltage step-up factor
+        let bt = 0x0; // VGH: Vci1 * 6, VGL: Vci1 * 5
+        let vc = 0x0; // External VCI
+        self.rpi_spi.write_reg(Command::PowerControl2, &[bt, vc])?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::VMCTR1 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x0E], 10)?;
+        let dc0 = 0b011; // 1 H
+        let dc1 = 0b011; // 4 H
+        let power_ctrl_cmd = [(dc1 << 4) | dc0];
 
-        self.rpi_spi.write_command_delay(ST7735Command::INVOFF as u8, 0)?;
+        // Sets operating frequencies of step-up circuit in normal mode
+        self.rpi_spi
+            .write_reg(Command::PowerControl3, &power_ctrl_cmd)?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::COLMOD as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![0x05], 10)?;
+        // Sets operating frequencies of step-up circuit in idle mode
+        self.rpi_spi
+            .write_reg(Command::PowerControl4, &power_ctrl_cmd)?;
+
+        // Sets operating frequencies of step-up circuit in partial mode
+        self.rpi_spi
+            .write_reg(Command::PowerControl5, &power_ctrl_cmd)?;
+
+        // self.rpi_spi.write_reg(Command::VcomControl1, &[0x0E])?;
+        // thread::sleep(Duration::from_millis(10));
+
+        // Set by software reset
+        // // Sets pixel format to 18 bits / pixel
+        // let dpi = 0b0110; // 18 bits / pixel
+        // let dbi = 0b110; // 18 bits / pixel
+        // self.rpi_spi
+        //     .write_reg(Command::InterfacePixelFormat, &[(dpi << 4) | dbi])?;
+        // thread::sleep(Duration::from_millis(10));
 
         // 480 x 320
-        self.rpi_spi.write_command_delay(ST7735Command::CASET as u8, 0)?; //0-479
-        self.rpi_spi.write_data_delay(&vec![0x00, 0x00, 0x01, 0xDF], 0)?; //0-479
+        self.rpi_spi
+            .write_reg(Command::ColumnAddressSet, &[0x00, 0x00, 0x01, 0xDF])?; //0-479
 
-        self.rpi_spi.write_command_delay(ST7735Command::RASET as u8, 0)?; //0-319
-        self.rpi_spi.write_data_delay(&vec![0x00, 0x00, 0x01, 0x3F], 0)?; //0-319
+        self.rpi_spi
+            .write_reg(Command::RowAddressSet, &[0x00, 0x00, 0x01, 0x3F])?; //0-319
 
-        self.rpi_spi.write_command_delay(ST7735Command::GMCTRP1 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![
-            0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D,
-            0x29, 0x25, 0x2B, 0x39, 0x00, 0x01, 0x03, 0x10], 0)?;
+        // self.rpi_spi.write_reg(
+        //     Command::PositiveGammaControl,
+        //     &[
+        //         0x02, 0x1C, 0x07, 0x12, 0x37, 0x32, 0x29, 0x2D, 0x29, 0x25, 0x2B, 0x39, 0x00, 0x01,
+        //         0x03, 0x10,
+        //     ],
+        // )?;
 
-        self.rpi_spi.write_command_delay(ST7735Command::GMCTRN1 as u8, 0)?;
-        self.rpi_spi.write_data_delay(&vec![
-            0x3B, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D,
-            0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00, 0x02, 0x10], 10)?;
+        // self.rpi_spi.write_reg(
+        //     Command::NegativeGammaControl,
+        //     &[
+        //         0x3B, 0x1D, 0x07, 0x06, 0x2E, 0x2C, 0x29, 0x2D, 0x2E, 0x2E, 0x37, 0x3F, 0x00, 0x00,
+        //         0x02, 0x10,
+        //     ],
+        // )?;
+        // thread::sleep(Duration::from_millis(10));
 
-        self.rpi_spi.write_command_delay(ST7735Command::NORON as u8, 10)?;
-        self.rpi_spi.write_command_delay(ST7735Command::DISPON as u8, 100)?;
+        self.rpi_spi
+            .write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;
+        self.rpi_spi
+            .write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
 
         Ok(())
     }
 
-    fn _cmd3(&self) -> io::Result<()> {
-        Ok(())
-    }
+    // fn _cmd3(&self) -> io::Result<()> {
+    //     Ok(())
+    // }
 
     fn reset_pin(&mut self) {
-        self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
-        self.tft_rst.set_low();
-        thread::sleep(Duration::from_millis(10));
-        self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
+        self.rpi_spi.reset_pin();
     }
 }
 
+impl Default for RpiTftDisplay {
+    fn default() -> Self {
+        Self::new()
+    }
+}

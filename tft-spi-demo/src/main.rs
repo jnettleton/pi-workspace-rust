@@ -1,16 +1,18 @@
 pub mod rpi_display;
 
-use std::io;
-use rpi_display::rpi_tft_display::ST7735Color;
-use rpi_display::rpi_tft_display::RpiTftDisplay;
-use rpi_display::rpi_spi::RpiSpi;
+use std::{error::Error, result};
 
-fn main() -> io::Result<()> {
-    let _spi = RpiSpi::new();
+use rpi_display::rpi_tft_display::{color::Color, RpiTftDisplay};
 
+fn main() -> result::Result<(), Box<dyn Error>> {
     let mut display = RpiTftDisplay::new();
     display.initialize()?;
-    display.fill_screen(ST7735Color::RED as u16)?;
+
+    display.fill_screen(Color::WHITE)?;
+    display.fill_screen(Color::RED)?;
+    display.fill_screen(Color::GREEN)?;
+    display.fill_screen(Color::BLUE)?;
+    display.fill_screen(Color::BLACK)?;
 
     Ok(())
 }
