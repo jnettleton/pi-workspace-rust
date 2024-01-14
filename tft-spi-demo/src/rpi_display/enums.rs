@@ -44,12 +44,26 @@ pub enum Command {
     NegativeGammaControl = 0xE1, // negative gamma correction setting
 }
 
-// pub enum TFTMode {
-//     // Normal,
-//     // Partial,
-//     // Idle,
-//     // Sleep,
-//     // Invert,
-//     // DisplayOn,
-//     DisplayOff,
-// }
+pub enum TFTMode {
+    // Normal,
+    // Partial,
+    // Idle,
+    // Sleep,
+    // Invert,
+    // DisplayOn,
+    DisplayOff,
+}
+
+pub enum TFTRotate {
+    Degrees0,
+    Degrees90,
+    Degrees180,
+    Degrees270,
+}
+
+pub enum TFTPcbType {
+    Red,
+    Green,
+    Black,
+    None,
+}
