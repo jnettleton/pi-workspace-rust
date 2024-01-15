@@ -3,35 +3,44 @@ extern crate rppal;
 use std::{mem, thread, time::Duration};
 use std::sync::{Arc, Mutex};
 
-use itertools::Itertools;
 use rppal::{
     gpio::{Gpio, OutputPin},
     spi::{self, Bus, Mode, SlaveSelect, Spi},
 };
 
-use crate::rpi_display::enums::Command;
+use crate::tft_display::enums::Command;
 
-pub trait RpiSpi {
+pub trait TftSpi {
+    fn reset_pin(&mut self);
+    fn write_reg(&mut self, cmd: Command, data: &[u8]);
     fn write_command(&mut self, cmd: Command);
     fn write_command_delay(&mut self, cmd: Command, delay: Duration);
-    fn write_data(&mut self, data: &[u8], size: usize);
-    fn write_data_delay(&mut self, data: &[u8], size: usize, delay: Duration);
+    fn write_data(&mut self, data: &[u8]);
+    fn write_data_delay(&mut self, data: &[u8], delay: Duration);
 }
 
 #[derive(Clone)]
-pub struct RpiSpiImpl {
-    inner: Arc<Mutex<InnerRpiSpi>>,
+pub struct TftSpiImpl {
+    inner: Arc<Mutex<InnerTftSpi>>,
 }
 
-impl RpiSpiImpl {
+impl TftSpiImpl {
     fn new() -> Self {
         Self {
-            inner: Arc::new(Mutex::new(InnerRpiSpi::new())),
+            inner: Arc::new(Mutex::new(InnerTftSpi::new())),
         }
     }
 }
 
-impl RpiSpi for RpiSpiImpl {
+impl TftSpi for TftSpiImpl {
+    fn reset_pin(&mut self) {
+        self.inner.xlock().reset_pin();
+    }
+
+    fn write_reg(&mut self, cmd: Command, data: &[u8]) {
+        self.inner.xlock().write_reg(cmd, data);
+    }
+
     fn write_command(&mut self, cmd: Command) {
         self.inner.xlock().write_command(cmd);
     }
@@ -40,16 +49,16 @@ impl RpiSpi for RpiSpiImpl {
         self.inner.xlock().write_command_delay(cmd, delay);
     }
 
-    fn write_data(&mut self, data: &[u8], size: usize) {
-        self.inner.xlock().write_data(data, size);
+    fn write_data(&mut self, data: &[u8]) {
+        self.inner.xlock().write_data(data);
     }
 
     fn write_data_delay(&mut self, data: &[u8], delay: Duration) {
-        self.inner.xlock().write_data_delay(data, size, delay);
+        self.inner.xlock().write_data_delay(data, delay);
     }
 }
 
-struct InnerRpiSpi {
+struct InnerTftSpi {
     cmd_buffer: [u8; mem::size_of::<u16>()],
     // pub spi_device: Spidev,
     spi_device: Spi,
@@ -61,7 +70,7 @@ struct InnerRpiSpi {
 }
 
 
-impl InnerRpiSpi {
+impl InnerTftSpi {
     const SPI_CLOCK_SPEED: u32 = 500_000; // 500 kHz
 
     /// Reset
@@ -138,6 +147,15 @@ impl InnerRpiSpi {
     //     let bytes = self.write_data(&data)?;
     // }
 
+    pub fn write_reg(&mut self, cmd: Command, data: &[u8]) {
+        // self.dc_set_low();
+
+        // self.cmd_buffer[0] = 0;
+        // self.cmd_buffer[1] = cmd as u8;
+        let _ = self.spi_device.write_command(cmd);
+        let _ = self.spi_device.write_data(data);
+    }
+
     pub fn write_command(&mut self, cmd: Command) {
         self.dc_set_low();
 
@@ -160,7 +178,7 @@ impl InnerRpiSpi {
     }
 
     pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) {
-        self.write_data(data, size);
+        self.write_data(data);
 
         if !delay.is_zero() {
             thread::sleep(delay);

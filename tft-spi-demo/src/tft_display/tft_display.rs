@@ -1,12 +1,12 @@
-use crate::rpi_spi::RpiSpi;
-use crate::rpi_display::{
+use crate::tft_spi::TftSpi;
+use crate::tft_display::{
     color::Color,
     enums::{Command, TFTRotate, TFTMode, TFTPcbType},
     error::Error,
 };
 
 use std::{result, thread, time::Duration};
-use std::convert::AsMut;
+// use std::convert::AsMut;
 
 use rppal::spi;
 
@@ -14,9 +14,9 @@ pub type Result<T> = result::Result<T, Error>;
 
 const MAX_BUFFER_SIZE: usize = 4096;
 
-pub struct RpiTftDisplay {
-    rpi_spi: Box<dyn RpiSpi>,
-    buffer:[u8; MAX_BUFFER_SIZE],
+pub struct TftDisplay {
+    tft_spi: Box<dyn TftSpi>,
+    buffer: [u8; MAX_BUFFER_SIZE],
     mode: TFTMode,
     pcb_type: TFTPcbType,
 
@@ -138,11 +138,11 @@ const FONT2: &[u8; 220] = &[
     0x02, 0x01, 0x02, 0x04, 0x02
 ];
 
-impl RpiTftDisplay {
-    pub fn new(rpi_spi: Box<dyn RpiSpi>) -> Self {
+impl TftDisplay {
+    pub fn new(tft_spi: Box<dyn TftSpi>) -> Self {
         // Self { rpi_spi: rpi_spi, _mode: TFTMode::DisplayOff, pcb_type: TFTPcbType::None, outputs: output_lines }
         Self {
-            rpi_spi,
+            tft_spi,
             buffer: [0; MAX_BUFFER_SIZE],
             mode: TFTMode::DisplayOff,
             pcb_type: TFTPcbType::None,
@@ -255,8 +255,8 @@ impl RpiTftDisplay {
             return;
         };
 
-        let mut width: usize = w;
-        let mut height: usize = h;
+        let mut width: usize = w.into();
+        let mut height: usize = h.into();
         if (x + w - 1) >= self.tft_height {
             width = (self.tft_width - x) as usize;
         }
@@ -270,23 +270,23 @@ impl RpiTftDisplay {
 
         let mut index = 0;
         let mut count = width * height;
-        while (count > 0) {
-            if (index == MAX_BUFFER_SIZE) {
-                self.rpi_spi.write_data(&self.buffer, index);
+        while count > 0 {
+            if index == MAX_BUFFER_SIZE {
+                self.tft_spi.write_data(&self.buffer);
                 index = 0;
             }
             self.buffer[index] = hi;
             index = index + 1;
 
-            if (index == MAX_BUFFER_SIZE) {
-                self.rpi_spi.write_data(&self.buffer, index);
+            if index == MAX_BUFFER_SIZE {
+                self.tft_spi.write_data(&self.buffer);
                 index = 0;
             }
             self.buffer[index] = md;
             index = index + 1;
 
-            if (index == MAX_BUFFER_SIZE) {
-                self.rpi_spi.write_data(&self.buffer, index);
+            if index == MAX_BUFFER_SIZE {
+                self.tft_spi.write_data(&self.buffer);
                 index = 0;
             }
             self.buffer[index] = lo;
@@ -294,9 +294,9 @@ impl RpiTftDisplay {
 
             count = count - 1;
         }
-        if (index != 0) {
-            let remaining = clone_into_array(&self.buffer[0..index]);
-            self.rpi_spi.write_data(&self.buffer, index);
+        if index != 0 {
+            //let remaining = clone_into_array(&self.buffer[0..index]);
+            self.tft_spi.write_data(&self.buffer);
         }
 
         // let color_iter = iter::repeat(color)
@@ -310,7 +310,7 @@ impl RpiTftDisplay {
         // }
     }
 
-    pub fn set_addr_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) {
+    pub fn set_addr_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result<()> {
         let column_start = x0 + self.x_start;
         let column_end = x1 + self.x_start;
 
@@ -321,7 +321,7 @@ impl RpiTftDisplay {
             return Err(Error::Size {
                 given: column_start,
                 max: self.tft_width,
-            });
+            })
         } else if column_end >= self.tft_width {
             return Err(Error::Size {
                 given: column_end,
@@ -339,7 +339,7 @@ impl RpiTftDisplay {
             });
         }
 
-        self.rpi_spi.write_reg(
+        self.tft_spi.write_reg(
             Command::ColumnAddressSet,
             &[
                 (column_start >> 8) as u8,
@@ -347,9 +347,9 @@ impl RpiTftDisplay {
                 (column_end >> 8) as u8,
                 column_end as u8,
             ],
-        )?;
+        );
 
-        self.rpi_spi.write_reg(
+        self.tft_spi.write_reg(
             Command::RowAddressSet,
             &[
                 (row_start >> 8) as u8,
@@ -358,6 +358,8 @@ impl RpiTftDisplay {
                 row_end as u8,
             ],
         );
+
+        Ok(())
     }
 
     // pub fn set_cursor(&mut self) -> io::Result<()> {
@@ -378,29 +380,29 @@ impl RpiTftDisplay {
 
     fn init_display(&mut self) -> spi::Result<()> {
         // Soft reset to set defaults
-        self.rpi_spi
-            .write_command_delay(Command::SoftReset, Duration::from_millis(150))?;
+        self.tft_spi
+            .write_command_delay(Command::SoftReset, Duration::from_millis(150));
 
         // Soft reset sets Sleep In
-        self.rpi_spi
-            .write_command_delay(Command::SleepOut, Duration::from_millis(500))?;
+        self.tft_spi
+            .write_command_delay(Command::SleepOut, Duration::from_millis(500));
 
         let frs = 0b0001; // 30Hz
         let div = 0b00; // fosc
         let rtn = 0b10001; // 17 clocks per line
 
         // Sets normal mode frame rate to 30Hz, division ratio to fosc, 17 clocks per line
-        self.rpi_spi
-            .write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn])?;
+        self.tft_spi
+            .write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn]);
         thread::sleep(Duration::from_millis(10));
 
         // Sets idle mode frame rate, division ratio to fosc, 17 clocks per line
-        self.rpi_spi
-            .write_reg(Command::FrameRateControlIdle, &[div, rtn])?;
+        self.tft_spi
+            .write_reg(Command::FrameRateControlIdle, &[div, rtn]);
 
         // Sets partial mode frame rate, division ratio to fosc, 17 clocks per line
-        self.rpi_spi
-            .write_reg(Command::FrameRateControlPartial, &[div, rtn])?;
+        self.tft_spi
+            .write_reg(Command::FrameRateControlPartial, &[div, rtn]);
 
         // Software reset sets display inversion off
         // self.rpi_spi.write_command(Command::DisplayInversionOff)?;
@@ -412,30 +414,30 @@ impl RpiTftDisplay {
         // Sets positive/negative gamma to +/- 4.4375
         let vrh1 = 0x0E; //  4.4375
         let vrh2 = 0x0E; // -4.4375
-        self.rpi_spi
-            .write_reg(Command::PowerControl1, &[vrh1, vrh2])?;
+        self.tft_spi
+            .write_reg(Command::PowerControl1, &[vrh1, vrh2]);
         thread::sleep(Duration::from_millis(10));
 
         // Sets operating voltage step-up factor
         let bt = 0x0; // VGH: Vci1 * 6, VGL: Vci1 * 5
         let vc = 0x0; // External VCI
-        self.rpi_spi.write_reg(Command::PowerControl2, &[bt, vc])?;
+        self.tft_spi.write_reg(Command::PowerControl2, &[bt, vc]);
 
         let dc0 = 0b011; // 1 H
         let dc1 = 0b011; // 4 H
         let power_ctrl_cmd = [(dc1 << 4) | dc0];
 
         // Sets operating frequencies of step-up circuit in normal mode
-        self.rpi_spi
-            .write_reg(Command::PowerControl3, &power_ctrl_cmd)?;
+        self.tft_spi
+            .write_reg(Command::PowerControl3, &power_ctrl_cmd);
 
         // Sets operating frequencies of step-up circuit in idle mode
-        self.rpi_spi
-            .write_reg(Command::PowerControl4, &power_ctrl_cmd)?;
+        self.tft_spi
+            .write_reg(Command::PowerControl4, &power_ctrl_cmd);
 
         // Sets operating frequencies of step-up circuit in partial mode
-        self.rpi_spi
-            .write_reg(Command::PowerControl5, &power_ctrl_cmd)?;
+        self.tft_spi
+            .write_reg(Command::PowerControl5, &power_ctrl_cmd);
 
         // self.rpi_spi.write_reg(Command::VcomControl1, &[0x0E])?;
         // thread::sleep(Duration::from_millis(10));
@@ -449,11 +451,11 @@ impl RpiTftDisplay {
         // thread::sleep(Duration::from_millis(10));
 
         // 480 x 320
-        self.rpi_spi
-            .write_reg(Command::ColumnAddressSet, &[0x00, 0x00, 0x01, 0xDF])?; //0-479
+        self.tft_spi
+            .write_reg(Command::ColumnAddressSet, &[0x00, 0x00, 0x01, 0xDF]); //0-479
 
-        self.rpi_spi
-            .write_reg(Command::RowAddressSet, &[0x00, 0x00, 0x01, 0x3F])?; //0-319
+        self.tft_spi
+            .write_reg(Command::RowAddressSet, &[0x00, 0x00, 0x01, 0x3F]); //0-319
 
         // self.rpi_spi.write_reg(
         //     Command::PositiveGammaControl,
@@ -472,10 +474,10 @@ impl RpiTftDisplay {
         // )?;
         // thread::sleep(Duration::from_millis(10));
 
-        self.rpi_spi
-            .write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;
-        self.rpi_spi
-            .write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
+        self.tft_spi
+            .write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10));
+        self.tft_spi
+            .write_command_delay(Command::DisplayOn, Duration::from_millis(100));
 
         Ok(())
     }
@@ -485,11 +487,11 @@ impl RpiTftDisplay {
     // }
 
     fn reset_pin(&mut self) {
-        self.rpi_spi.reset_pin();
+        self.tft_spi.reset_pin();
     }
 }
 
-impl Default for RpiTftDisplay {
+impl Default for TftDisplay {
     fn default() -> Self {
         Self::new()
     }
