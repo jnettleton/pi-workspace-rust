@@ -6,7 +6,6 @@ pub struct TftTouch {
 
 impl TftTouch {
     pub(crate) fn new(tft_spi: Box<dyn TftSpi>) -> Self {
-        let spi = TftSpi::new();
         Self {
             tft_spi,
         }

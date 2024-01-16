@@ -9,14 +9,17 @@ use rppal::{
 };
 
 use crate::tft_display::enums::Command;
+use crate::util::MutexExt;
+//use dyn_clonable::clonable;
 
+//#[clonable]
 pub trait TftSpi {
     fn reset_pin(&mut self);
-    fn write_reg(&mut self, cmd: Command, data: &[u8]);
-    fn write_command(&mut self, cmd: Command);
-    fn write_command_delay(&mut self, cmd: Command, delay: Duration);
-    fn write_data(&mut self, data: &[u8]);
-    fn write_data_delay(&mut self, data: &[u8], delay: Duration);
+    fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize>;
+    fn write_command(&mut self, cmd: Command) -> spi::Result<usize>;
+    fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize>;
+    fn write_data(&mut self, data: &[u8]) -> spi::Result<usize>;
+    fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize>;
 }
 
 #[derive(Clone)]
@@ -25,7 +28,7 @@ pub struct TftSpiImpl {
 }
 
 impl TftSpiImpl {
-    fn new() -> Self {
+    pub fn new() -> Self {
         Self {
             inner: Arc::new(Mutex::new(InnerTftSpi::new())),
         }
@@ -34,27 +37,27 @@ impl TftSpiImpl {
 
 impl TftSpi for TftSpiImpl {
     fn reset_pin(&mut self) {
-        self.inner.xlock().reset_pin();
+        self.inner.xlock().reset_pin()
     }
 
-    fn write_reg(&mut self, cmd: Command, data: &[u8]) {
-        self.inner.xlock().write_reg(cmd, data);
+    fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize> {
+        self.inner.xlock().write_reg(cmd, data)
     }
 
-    fn write_command(&mut self, cmd: Command) {
-        self.inner.xlock().write_command(cmd);
+    fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
+        self.inner.xlock().write_command(cmd)
     }
 
-    fn write_command_delay(&mut self, cmd: Command, delay: Duration) {
-        self.inner.xlock().write_command_delay(cmd, delay);
+    fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
+        self.inner.xlock().write_command_delay(cmd, delay)
     }
 
-    fn write_data(&mut self, data: &[u8]) {
-        self.inner.xlock().write_data(data);
+    fn write_data(&mut self, data: &[u8]) -> spi::Result<usize> {
+        self.inner.xlock().write_data(data)
     }
 
-    fn write_data_delay(&mut self, data: &[u8], delay: Duration) {
-        self.inner.xlock().write_data_delay(data, delay);
+    fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
+        self.inner.xlock().write_data_delay(data, delay)
     }
 }
 
@@ -87,9 +90,9 @@ impl InnerTftSpi {
     // const TFT_CS_TOUCH: u8 = 7;
 
     pub fn new() -> Self {
-        let spi = Self::create_spi()?;
-        let gpio = Gpio::new()?;
+        let spi = Self::create_spi().unwrap();
 
+        let gpio = Gpio::new().unwrap();
         let tft_dc = gpio.get(Self::TFT_DC).unwrap().into_output();
         let tft_rst = gpio.get(Self::TFT_RST).unwrap().into_output();
         // let tft_cs_display = gpio.get(TFT_CS_DISPLAY).unwrap().into_output();
@@ -147,42 +150,42 @@ impl InnerTftSpi {
     //     let bytes = self.write_data(&data)?;
     // }
 
-    pub fn write_reg(&mut self, cmd: Command, data: &[u8]) {
-        // self.dc_set_low();
+    pub fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize> {
+        let cmd_bytes = self.write_command(cmd)?;
+        let data_bytes = self.write_data(data)?;
 
-        // self.cmd_buffer[0] = 0;
-        // self.cmd_buffer[1] = cmd as u8;
-        let _ = self.spi_device.write_command(cmd);
-        let _ = self.spi_device.write_data(data);
+        Ok(cmd_bytes + data_bytes)
     }
 
-    pub fn write_command(&mut self, cmd: Command) {
+    pub fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
         self.dc_set_low();
 
-        // self.cmd_buffer[0] = 0;
         self.cmd_buffer[1] = cmd as u8;
-        let _ = self.spi_device.write(&self.cmd_buffer);
+        self.spi_device.write(&self.cmd_buffer)
     }
 
-    pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) {
-        self.write_command(cmd);
+    pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
+        let result = self.write_command(cmd);
 
         if !delay.is_zero() {
             thread::sleep(delay);
         }
+
+        result
     }
 
-    pub fn write_data(&mut self, data: &[u8], size: usize) {
+    pub fn write_data(&mut self, data: &[u8]) -> spi::Result<usize> {
         self.dc_set_high();
-        let _ = self.spi_device.write(data);
+        self.spi_device.write(data)
     }
 
-    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) {
-        self.write_data(data);
+    pub fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
+        let result = self.write_data(data);
 
         if !delay.is_zero() {
             thread::sleep(delay);
         }
+        result
     }
 
     fn dc_set_low(&mut self) {

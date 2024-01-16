@@ -239,7 +239,7 @@ impl TftDisplay {
         // self.rpi_spi.write_data(madctrl);
     }
 
-    pub fn fill_screen(&mut self, color: Color) {
+    pub fn fill_screen(&mut self, color: Color) -> Result<()> {
         self.fill_rectangle(0, 0, self.tft_width, self.tft_height, color)
     }
 
@@ -250,9 +250,9 @@ impl TftDisplay {
         mut w: u16,
         mut h: u16,
         color: Color,
-    ) {
+    ) -> Result<()> {
         if x >= self.tft_width || y >= self.tft_height {
-            return;
+            return Ok(());
         };
 
         let mut width: usize = w.into();
@@ -296,7 +296,7 @@ impl TftDisplay {
         }
         if index != 0 {
             //let remaining = clone_into_array(&self.buffer[0..index]);
-            self.tft_spi.write_data(&self.buffer);
+            self.tft_spi.write_data(&self.buffer)?;
         }
 
         // let color_iter = iter::repeat(color)
@@ -308,6 +308,8 @@ impl TftDisplay {
         // for color in &color_iter {
         //     self.rpi_spi.write_data(&color.collect_vec())?;
         // }
+
+        Ok(())
     }
 
     pub fn set_addr_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result<()> {
@@ -347,7 +349,7 @@ impl TftDisplay {
                 (column_end >> 8) as u8,
                 column_end as u8,
             ],
-        );
+        )?;
 
         self.tft_spi.write_reg(
             Command::RowAddressSet,
@@ -357,7 +359,7 @@ impl TftDisplay {
                 (row_end >> 8) as u8,
                 row_end as u8,
             ],
-        );
+        )?;
 
         Ok(())
     }
@@ -381,11 +383,11 @@ impl TftDisplay {
     fn init_display(&mut self) -> spi::Result<()> {
         // Soft reset to set defaults
         self.tft_spi
-            .write_command_delay(Command::SoftReset, Duration::from_millis(150));
+            .write_command_delay(Command::SoftReset, Duration::from_millis(150))?;
 
         // Soft reset sets Sleep In
         self.tft_spi
-            .write_command_delay(Command::SleepOut, Duration::from_millis(500));
+            .write_command_delay(Command::SleepOut, Duration::from_millis(500))?;
 
         let frs = 0b0001; // 30Hz
         let div = 0b00; // fosc
@@ -393,16 +395,16 @@ impl TftDisplay {
 
         // Sets normal mode frame rate to 30Hz, division ratio to fosc, 17 clocks per line
         self.tft_spi
-            .write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn]);
+            .write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn])?;
         thread::sleep(Duration::from_millis(10));
 
         // Sets idle mode frame rate, division ratio to fosc, 17 clocks per line
         self.tft_spi
-            .write_reg(Command::FrameRateControlIdle, &[div, rtn]);
+            .write_reg(Command::FrameRateControlIdle, &[div, rtn])?;
 
         // Sets partial mode frame rate, division ratio to fosc, 17 clocks per line
         self.tft_spi
-            .write_reg(Command::FrameRateControlPartial, &[div, rtn]);
+            .write_reg(Command::FrameRateControlPartial, &[div, rtn])?;
 
         // Software reset sets display inversion off
         // self.rpi_spi.write_command(Command::DisplayInversionOff)?;
@@ -415,13 +417,13 @@ impl TftDisplay {
         let vrh1 = 0x0E; //  4.4375
         let vrh2 = 0x0E; // -4.4375
         self.tft_spi
-            .write_reg(Command::PowerControl1, &[vrh1, vrh2]);
+            .write_reg(Command::PowerControl1, &[vrh1, vrh2])?;
         thread::sleep(Duration::from_millis(10));
 
         // Sets operating voltage step-up factor
         let bt = 0x0; // VGH: Vci1 * 6, VGL: Vci1 * 5
         let vc = 0x0; // External VCI
-        self.tft_spi.write_reg(Command::PowerControl2, &[bt, vc]);
+        self.tft_spi.write_reg(Command::PowerControl2, &[bt, vc])?;
 
         let dc0 = 0b011; // 1 H
         let dc1 = 0b011; // 4 H
@@ -429,15 +431,15 @@ impl TftDisplay {
 
         // Sets operating frequencies of step-up circuit in normal mode
         self.tft_spi
-            .write_reg(Command::PowerControl3, &power_ctrl_cmd);
+            .write_reg(Command::PowerControl3, &power_ctrl_cmd)?;
 
         // Sets operating frequencies of step-up circuit in idle mode
         self.tft_spi
-            .write_reg(Command::PowerControl4, &power_ctrl_cmd);
+            .write_reg(Command::PowerControl4, &power_ctrl_cmd)?;
 
         // Sets operating frequencies of step-up circuit in partial mode
         self.tft_spi
-            .write_reg(Command::PowerControl5, &power_ctrl_cmd);
+            .write_reg(Command::PowerControl5, &power_ctrl_cmd)?;
 
         // self.rpi_spi.write_reg(Command::VcomControl1, &[0x0E])?;
         // thread::sleep(Duration::from_millis(10));
@@ -452,10 +454,10 @@ impl TftDisplay {
 
         // 480 x 320
         self.tft_spi
-            .write_reg(Command::ColumnAddressSet, &[0x00, 0x00, 0x01, 0xDF]); //0-479
+            .write_reg(Command::ColumnAddressSet, &[0x00, 0x00, 0x01, 0xDF])?; //0-479
 
         self.tft_spi
-            .write_reg(Command::RowAddressSet, &[0x00, 0x00, 0x01, 0x3F]); //0-319
+            .write_reg(Command::RowAddressSet, &[0x00, 0x00, 0x01, 0x3F])?; //0-319
 
         // self.rpi_spi.write_reg(
         //     Command::PositiveGammaControl,
@@ -475,9 +477,9 @@ impl TftDisplay {
         // thread::sleep(Duration::from_millis(10));
 
         self.tft_spi
-            .write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10));
+            .write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;
         self.tft_spi
-            .write_command_delay(Command::DisplayOn, Duration::from_millis(100));
+            .write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
 
         Ok(())
     }
@@ -491,8 +493,8 @@ impl TftDisplay {
     }
 }
 
-impl Default for TftDisplay {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+// impl Default for TftDisplay {
+//     fn default() -> Self {
+//         Self::new()
+//     }
+// }
