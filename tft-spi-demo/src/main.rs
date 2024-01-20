@@ -6,15 +6,16 @@ mod util;
 use std::{error::Error, result};
 
 use tft_display::{color::Color, tft_display::TftDisplay};
-use tft_spi::{TftSpi, TftSpiImpl};
-use tft_touch::tft_touch::TftTouch;
+use tft_spi::TftSpiImpl;
+// use tft_spi::TftSpi;
+//use tft_touch::tft_touch::TftTouch;
 
 fn main() -> result::Result<(), Box<dyn Error>> {
-    let tft_spi: Box<dyn TftSpi> = Box::new(TftSpiImpl::new());
+    // let tft_spi: Box<dyn TftSpi> = Box::new(TftSpiImpl::new());
+    let tft_spi = TftSpiImpl::new();
 
-    let _touch = TftTouch::new(tft_spi.clone());
-
-    let mut display = TftDisplay::new(tft_spi.clone());
+    // let _touch = TftTouch::new(tft_spi.clone());
+    let mut display = TftDisplay::new(tft_spi);
     display.initialize()?;
 
     display.fill_screen(Color::WHITE)?;

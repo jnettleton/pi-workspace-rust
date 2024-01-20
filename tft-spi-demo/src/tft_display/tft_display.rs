@@ -1,7 +1,7 @@
-use crate::tft_spi::TftSpi;
+use crate::tft_spi::{TftSpi, TftSpiImpl};
 use crate::tft_display::{
     color::Color,
-    enums::{Command, TFTRotate, TFTMode, TFTPcbType},
+    enums::{Command, TFTRotate, TFTPcbType},
     error::Error,
 };
 
@@ -15,9 +15,10 @@ pub type Result<T> = result::Result<T, Error>;
 const MAX_BUFFER_SIZE: usize = 4096;
 
 pub struct TftDisplay {
-    tft_spi: Box<dyn TftSpi>,
+    // tft_spi: Box<dyn TftSpi>,
+    tft_spi: TftSpiImpl,
     buffer: [u8; MAX_BUFFER_SIZE],
-    mode: TFTMode,
+    // mode: TFTMode,
     pcb_type: TFTPcbType,
 
     x_start: u16,
@@ -29,8 +30,8 @@ pub struct TftDisplay {
     tft_height: u16,
     tft_start_width: u16,
     tft_start_height: u16,
-    start_column: u16,
-    start_row: u16,
+    // start_column: u16,
+    // start_row: u16,
     tft_rotate: TFTRotate,
 
     // tft_buffer: vec!<u8>(),
@@ -38,7 +39,7 @@ pub struct TftDisplay {
     // txt_bg_color: u16,
 }
 
-const FONT: &[u8; 255] = &[
+const _FONT: &[u8; 255] = &[
     0x00, 0x00, 0x00, 0x00, 0x00,
     0x00, 0x00, 0x5F, 0x00, 0x00,
     0x00, 0x07, 0x00, 0x07, 0x00,
@@ -91,7 +92,7 @@ const FONT: &[u8; 255] = &[
     0x3E, 0x41, 0x51, 0x21, 0x5E,
     0x7F, 0x09, 0x19, 0x29, 0x46
 ];
-const FONT2: &[u8; 220] = &[
+const _FONT2: &[u8; 220] = &[
     0x26, 0x49, 0x49, 0x49, 0x32,
     0x03, 0x01, 0x7F, 0x01, 0x03,
     0x3F, 0x40, 0x40, 0x40, 0x3F,
@@ -139,18 +140,19 @@ const FONT2: &[u8; 220] = &[
 ];
 
 impl TftDisplay {
-    pub fn new(tft_spi: Box<dyn TftSpi>) -> Self {
+    // pub fn new(tft_spi: Box<dyn TftSpi>) -> Self {
+    pub fn new(tft_spi: TftSpiImpl) -> Self {
         // Self { rpi_spi: rpi_spi, _mode: TFTMode::DisplayOff, pcb_type: TFTPcbType::None, outputs: output_lines }
         Self {
             tft_spi,
             buffer: [0; MAX_BUFFER_SIZE],
-            mode: TFTMode::DisplayOff,
+            // mode: TFTMode::DisplayOff,
             pcb_type: TFTPcbType::None,
 
             x_start: 0,
             y_start: 0,
-            start_column: 0,
-            start_row: 0,
+            // start_column: 0,
+            // start_row: 0,
 
             tft_height: 480,
             tft_width: 320,
@@ -184,7 +186,7 @@ impl TftDisplay {
         let mut _madctrl: u8 = 0;
 
         self.tft_rotate = rotate;
-        match rotate {
+        match self.tft_rotate {
             TFTRotate::Degrees0 => {
                 // if self.pcb_type == TFTPcbType::Black {
                 //     madctrl = ( ST7735MadControl.MADCTL_MX | ST7735MadControl.MADCTL_MY | ST7735MadControl.MADCTL_RGB) as u8;
@@ -247,8 +249,8 @@ impl TftDisplay {
         &mut self,
         x: u16,
         y: u16,
-        mut w: u16,
-        mut h: u16,
+        w: u16,
+        h: u16,
         color: Color,
     ) -> Result<()> {
         if x >= self.tft_width || y >= self.tft_height {
@@ -272,21 +274,21 @@ impl TftDisplay {
         let mut count = width * height;
         while count > 0 {
             if index == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&self.buffer);
+                self.tft_spi.write_data(&self.buffer)?;
                 index = 0;
             }
             self.buffer[index] = hi;
             index = index + 1;
 
             if index == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&self.buffer);
+                self.tft_spi.write_data(&self.buffer)?;
                 index = 0;
             }
             self.buffer[index] = md;
             index = index + 1;
 
             if index == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&self.buffer);
+                self.tft_spi.write_data(&self.buffer)?;
                 index = 0;
             }
             self.buffer[index] = lo;

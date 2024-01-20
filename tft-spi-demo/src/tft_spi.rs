@@ -1,6 +1,6 @@
 extern crate rppal;
 
-use std::{mem, thread, time::Duration};
+use std::{thread, time::Duration};
 use std::sync::{Arc, Mutex};
 
 use rppal::{
@@ -9,17 +9,17 @@ use rppal::{
 };
 
 use crate::tft_display::enums::Command;
-use crate::util::MutexExt;
+//use crate::util::MutexExt;
 //use dyn_clonable::clonable;
 
 //#[clonable]
-pub trait TftSpi {
-    fn reset_pin(&mut self);
-    fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize>;
-    fn write_command(&mut self, cmd: Command) -> spi::Result<usize>;
-    fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize>;
-    fn write_data(&mut self, data: &[u8]) -> spi::Result<usize>;
-    fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize>;
+pub trait TftSpi: Clone + Sized {
+    fn reset_pin(self: &mut Self);
+    fn write_reg(self: &mut Self, cmd: Command, data: &[u8]) -> spi::Result<usize>;
+    fn write_command(self: &mut Self, cmd: Command) -> spi::Result<usize>;
+    fn write_command_delay(self: &mut Self, cmd: Command, delay: Duration) -> spi::Result<usize>;
+    fn write_data(self: &mut Self, data: &[u8]) -> spi::Result<usize>;
+    fn write_data_delay(self: &mut Self, data: &[u8], delay: Duration) -> spi::Result<usize>;
 }
 
 #[derive(Clone)]
@@ -37,33 +37,32 @@ impl TftSpiImpl {
 
 impl TftSpi for TftSpiImpl {
     fn reset_pin(&mut self) {
-        self.inner.xlock().reset_pin()
+        self.inner.lock().unwrap().reset_pin()
     }
 
     fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize> {
-        self.inner.xlock().write_reg(cmd, data)
+        self.inner.lock().unwrap().write_reg(cmd, data)
     }
 
     fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
-        self.inner.xlock().write_command(cmd)
+        self.inner.lock().unwrap().write_command(cmd)
     }
 
     fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
-        self.inner.xlock().write_command_delay(cmd, delay)
+        self.inner.lock().unwrap().write_command_delay(cmd, delay)
     }
 
     fn write_data(&mut self, data: &[u8]) -> spi::Result<usize> {
-        self.inner.xlock().write_data(data)
+        self.inner.lock().unwrap().write_data(data)
     }
 
     fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
-        self.inner.xlock().write_data_delay(data, delay)
+        self.inner.lock().unwrap().write_data_delay(data, delay)
     }
 }
 
 struct InnerTftSpi {
-    cmd_buffer: [u8; mem::size_of::<u16>()],
-    // pub spi_device: Spidev,
+    // cmd_buffer: [u8; mem::size_of::<u16>()],
     spi_device: Spi,
     command: bool,
     tft_dc: OutputPin,
@@ -102,7 +101,7 @@ impl InnerTftSpi {
         // rpi_spi.tft_cs_touch.set_high();
 
         Self {
-            cmd_buffer: [0; mem::size_of::<u16>()],
+            // cmd_buffer: [0; mem::size_of::<u16>()],
             spi_device: spi,
             command: true,
             tft_dc,
@@ -139,6 +138,15 @@ impl InnerTftSpi {
         Ok(spi)
     }
 
+    pub fn reset_pin(&mut self) {
+        self.tft_rst.set_high();
+        thread::sleep(Duration::from_millis(10));
+        self.tft_rst.set_low();
+        thread::sleep(Duration::from_millis(10));
+        self.tft_rst.set_high();
+        thread::sleep(Duration::from_millis(10));
+    }
+
     // pub fn write_reg(&mut self, cmd: Command, data: &[u8]) {
     //     self.write_command(cmd)?;
     //
@@ -160,8 +168,8 @@ impl InnerTftSpi {
     pub fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
         self.dc_set_low();
 
-        self.cmd_buffer[1] = cmd as u8;
-        self.spi_device.write(&self.cmd_buffer)
+        // self.cmd_buffer[1] = cmd as u8;
+        self.spi_device.write(&[0, cmd as u8]) // self.cmd_buffer)
     }
 
     pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
@@ -201,18 +209,9 @@ impl InnerTftSpi {
             self.command = false;
         }
     }
-
-    pub fn reset_pin(&mut self) {
-        self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
-        self.tft_rst.set_low();
-        thread::sleep(Duration::from_millis(10));
-        self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
-// impl Default for RpiSpi {
+// impl Default for TftSpi {
 //     fn default() -> Self {
 //         Self::new()
 //     }
