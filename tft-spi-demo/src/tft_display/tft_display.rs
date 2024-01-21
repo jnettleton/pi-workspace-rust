@@ -270,35 +270,32 @@ impl TftDisplay {
         let md: u8 = color.green() << 2;
         let lo = color.blue() << 2;
 
-        let mut index = 0;
         let mut count = width * height;
+        let mut buffer: Vec<u8> = Vec::with_capacity(MAX_BUFFER_SIZE);
         while count > 0 {
-            if index == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&self.buffer)?;
-                index = 0;
+            if buffer.len() == MAX_BUFFER_SIZE {
+                self.tft_spi.write_data(&buffer)?;
+                buffer.clear();
             }
-            self.buffer[index] = hi;
-            index = index + 1;
+            buffer.push(hi);
 
-            if index == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&self.buffer)?;
-                index = 0;
+            if buffer.len() == MAX_BUFFER_SIZE {
+                self.tft_spi.write_data(&buffer)?;
+                buffer.clear();
             }
-            self.buffer[index] = md;
-            index = index + 1;
+            buffer.push(md);
 
-            if index == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&self.buffer)?;
-                index = 0;
+            if buffer.len() == MAX_BUFFER_SIZE {
+                self.tft_spi.write_data(&buffer)?;
+                buffer.clear();
             }
-            self.buffer[index] = lo;
-            index = index + 1;
+            buffer.push(lo);
 
             count = count - 1;
         }
-        if index != 0 {
+        if buffer.len() != 0 {
             //let remaining = clone_into_array(&self.buffer[0..index]);
-            self.tft_spi.write_data(&self.buffer)?;
+            self.tft_spi.write_data(&buffer)?;
         }
 
         // let color_iter = iter::repeat(color)
