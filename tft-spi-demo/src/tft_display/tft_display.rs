@@ -5,9 +5,9 @@ use crate::tft_display::{
     error::Error,
 };
 
-use std::{result, thread, time::Duration};
+use std::{iter, result, thread, time::Duration};
 // use std::convert::AsMut;
-
+use itertools::Itertools;
 use rppal::spi;
 
 pub type Result<T> = result::Result<T, Error>;
@@ -17,7 +17,7 @@ const MAX_BUFFER_SIZE: usize = 4096;
 pub struct TftDisplay {
     // tft_spi: Box<dyn TftSpi>,
     tft_spi: TftSpiImpl,
-    buffer: [u8; MAX_BUFFER_SIZE],
+    // buffer: [u8; MAX_BUFFER_SIZE],
     // mode: TFTMode,
     pcb_type: TFTPcbType,
 
@@ -145,7 +145,7 @@ impl TftDisplay {
         // Self { rpi_spi: rpi_spi, _mode: TFTMode::DisplayOff, pcb_type: TFTPcbType::None, outputs: output_lines }
         Self {
             tft_spi,
-            buffer: [0; MAX_BUFFER_SIZE],
+            // buffer: [0; MAX_BUFFER_SIZE],
             // mode: TFTMode::DisplayOff,
             pcb_type: TFTPcbType::None,
 
@@ -249,64 +249,32 @@ impl TftDisplay {
         &mut self,
         x: u16,
         y: u16,
-        w: u16,
-        h: u16,
+        mut w: u16,
+      mut   h: u16,
         color: Color,
     ) -> Result<()> {
         if x >= self.tft_width || y >= self.tft_height {
             return Ok(());
         };
 
-        let mut width: usize = w.into();
-        let mut height: usize = h.into();
         if (x + w - 1) >= self.tft_height {
-            width = (self.tft_width - x) as usize;
+            w = self.tft_width - x;
         }
         if (y + h - 1) >= self.tft_height {
-            height = (self.tft_height - y) as usize
+            h = self.tft_height - y
         }
 
-        let hi: u8 = color.red() << 2;
-        let md: u8 = color.green() << 2;
-        let lo = color.blue() << 2;
+        let color = [color.red() << 2, color.green() << 2, color.blue() << 2];
 
-        let mut count = width * height;
-        let mut buffer: Vec<u8> = Vec::with_capacity(MAX_BUFFER_SIZE);
-        while count > 0 {
-            if buffer.len() == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&buffer)?;
-                buffer.clear();
-            }
-            buffer.push(hi);
-
-            if buffer.len() == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&buffer)?;
-                buffer.clear();
-            }
-            buffer.push(md);
-
-            if buffer.len() == MAX_BUFFER_SIZE {
-                self.tft_spi.write_data(&buffer)?;
-                buffer.clear();
-            }
-            buffer.push(lo);
-
-            count = count - 1;
+        let color_iter = iter::repeat(color)
+            .take(h as usize * w as usize)
+            .flatten()
+            .chunks(MAX_BUFFER_SIZE);
+        self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
+        self.tft_spi.write_command(Command::MemoryWrite)?;
+        for color in &color_iter {
+            self.tft_spi.write_data(&color.collect_vec())?;
         }
-        if buffer.len() != 0 {
-            //let remaining = clone_into_array(&self.buffer[0..index]);
-            self.tft_spi.write_data(&buffer)?;
-        }
-
-        // let color_iter = iter::repeat(color)
-        //     .take(height * width)
-        //     .flatten()
-        //     .chunks(4096);
-        // self.set_addr_window(x, y, x + width - 1, y + height - 1)?;
-        // self.rpi_spi.write_command(Command::MemoryWrite)?;
-        // for color in &color_iter {
-        //     self.rpi_spi.write_data(&color.collect_vec())?;
-        // }
 
         Ok(())
     }
