@@ -5,11 +5,17 @@ use std::fmt::Display;
 pub struct Color(u8, u8, u8);
 
 impl Color {
-    pub const WHITE: Color = Color(63, 63, 63);
-    pub const BLACK: Color = Color(0, 0, 0);
-    pub const RED: Color = Color(63, 0, 0);
-    pub const GREEN: Color = Color(0, 63, 0);
-    pub const BLUE: Color = Color(0, 0, 63);
+    pub const BLACK: Color = Color(0x00, 0x00, 0x00);
+    pub const WHITE: Color = Color(0x3F, 0x3F, 0x3F);
+    pub const RED: Color = Color(0x3F, 0x00, 0x00);
+    pub const GREEN: Color = Color(0x00, 0x3F, 0x00);
+    pub const BLUE: Color = Color(0x00, 0x00, 0x3F);
+    pub const CYAN: Color = Color(0x00, 0x3F, 0x1F);
+    pub const MAGENTA: Color = Color(0x1F, 0x00, 0x1F);
+    pub const YELLOW: Color = Color(0x3F, 0x3E, 0x00);
+    pub const TAN: Color = Color(0x1D, 0x10, 0x11);
+    pub const GREY: Color = Color(0x13, 0x26, 0x11);
+    pub const BROWN: Color = Color(0x10, 0x10, 0x01);
 
     pub fn from_eight_bit_rgb(r: u8, g: u8, b: u8) -> Self {
         Self(

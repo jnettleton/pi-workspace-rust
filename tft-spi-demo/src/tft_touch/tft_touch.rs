@@ -9,8 +9,6 @@ pub struct TftTouch {
 impl TftTouch {
     // pub(crate) fn new(tft_spi: Box<dyn TftSpi>) -> Self {
     pub(crate) fn _new(tft_spi: TftSpiImpl) -> Self {
-        Self {
-            _tft_spi: tft_spi,
-        }
+        Self { _tft_spi: tft_spi }
     }
 }

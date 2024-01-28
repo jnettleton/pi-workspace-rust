@@ -1,7 +1,7 @@
 extern crate rppal;
 
-use std::{thread, time::Duration};
 use std::sync::{Arc, Mutex};
+use std::{thread, time::Duration};
 
 use rppal::{
     gpio::{Gpio, OutputPin},
@@ -20,6 +20,7 @@ pub trait TftSpi: Clone + Sized {
     fn write_command_delay(self: &mut Self, cmd: Command, delay: Duration) -> spi::Result<usize>;
     fn write_data(self: &mut Self, data: &[u8]) -> spi::Result<usize>;
     fn write_data_delay(self: &mut Self, data: &[u8], delay: Duration) -> spi::Result<usize>;
+    fn write_word(self: &mut Self, word: u16) -> spi::Result<usize>;
 }
 
 #[derive(Clone)]
@@ -59,6 +60,10 @@ impl TftSpi for TftSpiImpl {
     fn write_data_delay(&mut self, data: &[u8], delay: Duration) -> spi::Result<usize> {
         self.inner.lock().unwrap().write_data_delay(data, delay)
     }
+
+    fn write_word(&mut self, word: u16) -> spi::Result<usize> {
+        self.inner.lock().unwrap().write_word(word)
+    }
 }
 
 struct InnerTftSpi {
@@ -70,7 +75,6 @@ struct InnerTftSpi {
     // tft_cs_display: OutputPin, // low active
     // tft_cs_touch: OutputPin,   // low active
 }
-
 
 impl InnerTftSpi {
     const SPI_CLOCK_SPEED: u32 = 500_000; // 500 kHz
@@ -132,7 +136,12 @@ impl InnerTftSpi {
     ///
     /// `Mode::Mode0`
     fn create_spi() -> spi::Result<Spi> {
-        let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss0, Self::SPI_CLOCK_SPEED, Mode::Mode0)?;
+        let spi = Spi::new(
+            Bus::Spi0,
+            SlaveSelect::Ss0,
+            Self::SPI_CLOCK_SPEED,
+            Mode::Mode0,
+        )?;
         // spi.set_ss_polarity(Polarity::ActiveLow)?; // already the default
 
         Ok(spi)
@@ -140,11 +149,11 @@ impl InnerTftSpi {
 
     pub fn reset_pin(&mut self) {
         self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(120));
         self.tft_rst.set_low();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(120));
         self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(120));
     }
 
     // pub fn write_reg(&mut self, cmd: Command, data: &[u8]) {
@@ -167,9 +176,7 @@ impl InnerTftSpi {
 
     pub fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
         self.dc_set_low();
-
-        // self.cmd_buffer[1] = cmd as u8;
-        self.spi_device.write(&[0, cmd as u8]) // self.cmd_buffer)
+        self.spi_device.write(&[cmd as u8]) // self.cmd_buffer)
     }
 
     pub fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize> {
@@ -178,7 +185,6 @@ impl InnerTftSpi {
         if !delay.is_zero() {
             thread::sleep(delay);
         }
-
         result
     }
 
@@ -194,6 +200,10 @@ impl InnerTftSpi {
             thread::sleep(delay);
         }
         result
+    }
+
+    pub fn write_word(&mut self, value: u16) -> spi::Result<usize> {
+        self.write_data(&value.to_be_bytes())
     }
 
     fn dc_set_low(&mut self) {

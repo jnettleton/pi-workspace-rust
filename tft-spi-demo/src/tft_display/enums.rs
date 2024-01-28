@@ -12,7 +12,7 @@ pub enum Command {
     // DisplayOff = 0x28, // display off
     DisplayOn = 0x29, // display on
     // IdleModeOn = 0x39, // idle mode on
-    // IdleModeOff = 0x38, // idle mode off
+    IdleModeOff = 0x38, // idle mode off
     ColumnAddressSet = 0x2A, // column address set
     RowAddressSet = 0x2B,    //row/page address set
     MemoryWrite = 0x2C,      // memory write
@@ -20,16 +20,17 @@ pub enum Command {
     // PartialArea = 0x30, // partial area
     // VerticalScrollingDefinition = 0x33, // vertical scroll def
     InterfacePixelFormat = 0x3A, // interface pixel format
-    // MemoryAccessControl = 0x36, // memory access control
+    MemoryAccessControl = 0x36,  // memory access control
     // VerticalScrollingStartAddress = 0x37, //vertical scrolling start address
 
     // frame rate control
+    InterfaceModeControl = 0xB0,
     FrameRateControlNormal = 0xB1,  // normal
     FrameRateControlIdle = 0xB2,    // idle
     FrameRateControlPartial = 0xB3, // partial
 
     DisplayInversionControl = 0xB4, // display inversion control
-    // DisplayFunctionControl = 0xB6, // display function set
+    DisplayFunctionControl = 0xB6, // display function set
 
     // power control
     PowerControl1 = 0xC0,
@@ -42,6 +43,17 @@ pub enum Command {
 
     PositiveGammaControl = 0xE0, // positive gamma correction setting
     NegativeGammaControl = 0xE1, // negative gamma correction setting
+}
+
+#[repr(u8)]
+pub enum ST7735MadControl {
+    MADCTL_MY = 0x80,
+    MADCTL_MX = 0x40,
+    MADCTL_MV = 0x20,
+    MADCTL_ML = 0x10,
+    MADCTL_RGB = 0x00,
+    MADCTL_BGR = 0x08,
+    MADCTL_MH = 0x04,
 }
 
 pub enum TFTMode {
@@ -61,6 +73,7 @@ pub enum TFTRotate {
     Degrees270,
 }
 
+#[derive(PartialEq)]
 pub enum TFTPcbType {
     Red,
     Green,
