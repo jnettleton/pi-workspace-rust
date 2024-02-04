@@ -15,6 +15,7 @@ use crate::tft_display::enums::Command;
 //#[clonable]
 pub trait TftSpi: Clone + Sized {
     fn reset_pin(self: &mut Self);
+    fn select_display(self: &mut Self);
     fn write_reg(self: &mut Self, cmd: Command, data: &[u8]) -> spi::Result<usize>;
     fn write_command(self: &mut Self, cmd: Command) -> spi::Result<usize>;
     fn write_command_delay(self: &mut Self, cmd: Command, delay: Duration) -> spi::Result<usize>;
@@ -39,6 +40,10 @@ impl TftSpiImpl {
 impl TftSpi for TftSpiImpl {
     fn reset_pin(&mut self) {
         self.inner.lock().unwrap().reset_pin()
+    }
+
+    fn select_display(&mut self) {
+        self.inner.lock().unwrap().select_display()
     }
 
     fn write_reg(&mut self, cmd: Command, data: &[u8]) -> spi::Result<usize> {
@@ -70,14 +75,15 @@ struct InnerTftSpi {
     // cmd_buffer: [u8; mem::size_of::<u16>()],
     spi_device: Spi,
     command: bool,
+    display: bool,
     tft_dc: OutputPin,
     tft_rst: OutputPin,
-    // tft_cs_display: OutputPin, // low active
-    // tft_cs_touch: OutputPin,   // low active
+    tft_cs_display: OutputPin, // low active
+    tft_cs_touch: OutputPin,   // low active
 }
 
 impl InnerTftSpi {
-    const SPI_CLOCK_SPEED: u32 = 500_000; // 500 kHz
+    const SPI_CLOCK_SPEED: u32 = 26_000_000; // max 26 MHz
 
     /// Reset
     /// GPIO 25
@@ -89,27 +95,31 @@ impl InnerTftSpi {
     /// Physical Pin 18
     const TFT_DC: u8 = 24;
 
-    // const TFT_CS_DISPLAY: u8 = 8;
-    // const TFT_CS_TOUCH: u8 = 7;
+    const TFT_CS_DISPLAY: u8 = 8;
+    const TFT_CS_TOUCH: u8 = 7;
 
     pub fn new() -> Self {
         let spi = Self::create_spi().unwrap();
 
         let gpio = Gpio::new().unwrap();
-        let tft_dc = gpio.get(Self::TFT_DC).unwrap().into_output();
         let tft_rst = gpio.get(Self::TFT_RST).unwrap().into_output();
-        // let tft_cs_display = gpio.get(TFT_CS_DISPLAY).unwrap().into_output();
-        // let tft_cs_touch = gpio.get(TFT_CS_TOUCH).unwrap().into_output();
+        let mut tft_dc = gpio.get(Self::TFT_DC).unwrap().into_output();
+        let mut tft_cs_display = gpio.get(Self::TFT_CS_DISPLAY).unwrap().into_output();
+        let mut tft_cs_touch = gpio.get(Self::TFT_CS_TOUCH).unwrap().into_output();
 
-        // rpi_spi.dc_set_low().unwrap();
-        // rpi_spi.tft_cs_touch.set_high();
+        tft_dc.set_high();
+        tft_cs_display.set_high();
+        tft_cs_touch.set_high();
 
         Self {
             // cmd_buffer: [0; mem::size_of::<u16>()],
             spi_device: spi,
-            command: true,
+            command: false,
+            display: false,
             tft_dc,
             tft_rst,
+            tft_cs_display,
+            tft_cs_touch,
         }
     }
 
@@ -154,6 +164,14 @@ impl InnerTftSpi {
         thread::sleep(Duration::from_millis(120));
         self.tft_rst.set_high();
         thread::sleep(Duration::from_millis(120));
+    }
+
+    pub fn select_display(&mut self) {
+        if !self.display {
+            self.display = true;
+            self.tft_cs_touch.set_high();
+            self.tft_cs_display.set_low();
+        }
     }
 
     // pub fn write_reg(&mut self, cmd: Command, data: &[u8]) {
@@ -208,15 +226,15 @@ impl InnerTftSpi {
 
     fn dc_set_low(&mut self) {
         if !self.command {
-            self.tft_dc.set_low();
             self.command = true;
+            self.tft_dc.set_low();
         }
     }
 
     fn dc_set_high(&mut self) {
         if self.command {
-            self.tft_dc.set_high();
             self.command = false;
+            self.tft_dc.set_high();
         }
     }
 }
