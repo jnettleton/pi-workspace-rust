@@ -101,7 +101,7 @@ impl TftDisplay {
                         | ST7735MadControl::MadctlRgb as u8;
                 } else {
                     madctrl =
-                        ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMx as u8 | ST7735MadControl::MadctlMy as u8;
+                        ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMy as u8;
                 }
                 self.tft_width = self.tft_start_width;
                 self.tft_height = self.tft_start_height;
@@ -112,7 +112,7 @@ impl TftDisplay {
                         | ST7735MadControl::MadctlMv as u8
                         | ST7735MadControl::MadctlRgb as u8;
                 } else {
-                    madctrl = ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMv as u8 | ST7735MadControl::MadctlMy as u8;
+                    madctrl = ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMv as u8;
                 }
                 self.tft_width = self.tft_start_height;
                 self.tft_height = self.tft_start_width;
@@ -122,7 +122,7 @@ impl TftDisplay {
                     madctrl = ST7735MadControl::MadctlRgb as u8;
                 } else {
                     madctrl =
-                        ST7735MadControl::MadctlBgr as u8; // | ST7735MadControl::MadctlMy as u8;
+                        ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMx as u8;
                 }
                 self.tft_width = self.tft_start_width;
                 self.tft_height = self.tft_start_height;
@@ -135,8 +135,8 @@ impl TftDisplay {
                 } else {
                     madctrl = ST7735MadControl::MadctlBgr as u8
                         | ST7735MadControl::MadctlMv as u8
-                        | ST7735MadControl::MadctlMx as u8;
-                        // | ST7735MadControl::MadctlMy as u8;
+                        | ST7735MadControl::MadctlMx as u8
+                        | ST7735MadControl::MadctlMy as u8;
                 }
                 self.tft_width = self.tft_start_height;
                 self.tft_height = self.tft_start_width;
