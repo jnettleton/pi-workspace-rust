@@ -19,12 +19,18 @@ fn main() -> result::Result<(), Box<dyn Error>> {
     display.initialize()?;
 
     display.init_screen_size(0, 0, 320, 480);
-    display.set_rotation(TFTRotate::Degrees90);
 
+    display.set_rotation(TFTRotate::Degrees0);
     display.fill_screen(Color::BLUE)?;
+    display.set_rotation(TFTRotate::Degrees90);
     display.fill_screen(Color::RED)?;
+    display.set_rotation(TFTRotate::Degrees180);
     display.fill_screen(Color::YELLOW)?;
+    display.set_rotation(TFTRotate::Degrees270);
+    display.fill_screen(Color::MAGENTA)?;
 
+    display.set_rotation(TFTRotate::Degrees90);
+    display.fill_screen(Color::BLACK)?;
     // display.draw_text(10, 10, "Hello, World!", Color::WHITE, Color::BLUE, 4);
 
     display.fill_rectangle(0, 280, 120, 40, Color::RED)?;

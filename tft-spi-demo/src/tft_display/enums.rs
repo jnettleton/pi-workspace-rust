@@ -67,6 +67,7 @@ pub enum TFTMode {
     DisplayOff,
 }
 
+#[derive(PartialEq)]
 pub enum TFTRotate {
     Degrees0,
     Degrees90,
