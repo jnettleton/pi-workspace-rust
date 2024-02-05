@@ -83,7 +83,7 @@ struct InnerTftSpi {
 }
 
 impl InnerTftSpi {
-    const SPI_CLOCK_SPEED: u32 = 26_000_000; // max 26 MHz
+    const SPI_CLOCK_SPEED: u32 = 31_200_000; // max 26 MHz
 
     /// Reset
     /// GPIO 25

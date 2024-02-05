@@ -47,7 +47,7 @@ pub enum Command {
 }
 
 #[repr(u8)]
-pub enum ST7735MadControl {
+pub enum MadControl {
     MadctlMy = 0x80,
     MadctlMx = 0x40,
     MadctlMv = 0x20,
@@ -57,7 +57,7 @@ pub enum ST7735MadControl {
     MadctlRgb = 0x00,
 }
 
-pub enum TFTMode {
+pub enum Mode {
     // Normal,
     // Partial,
     // Idle,
@@ -68,7 +68,7 @@ pub enum TFTMode {
 }
 
 #[derive(PartialEq)]
-pub enum TFTRotate {
+pub enum Rotate {
     Degrees0,
     Degrees90,
     Degrees180,
@@ -76,7 +76,7 @@ pub enum TFTRotate {
 }
 
 #[derive(PartialEq)]
-pub enum TFTPcbType {
+pub enum PcbType {
     Red,
     Green,
     Black,

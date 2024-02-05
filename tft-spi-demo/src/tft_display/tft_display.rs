@@ -1,16 +1,12 @@
 use crate::tft_display::{
     color::Color,
-    enums::{Command, ST7735MadControl, TFTPcbType, TFTRotate},
+    enums::{Command, MadControl, PcbType, Rotate},
     error::Error,
 };
 use crate::tft_spi::{TftSpi, TftSpiImpl};
 
-//use std::iter;
 use std::{result, thread, time::Duration};
-// use std::convert::AsMut;
-//use itertools::Itertools;
 use rppal::spi;
-//use crate::tft_display::enums::ST7735MadControl::MadctlRgb;
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -20,13 +16,13 @@ pub struct TftDisplay {
     // tft_spi: Box<dyn TftSpi>,
     tft_spi: TftSpiImpl,
     // mode: TFTMode,
-    pcb_type: TFTPcbType,
+    pcb_type: PcbType,
 
-    tft_width: u16,
-    tft_height: u16,
-    tft_start_width: u16,
-    tft_start_height: u16,
-    tft_rotate: TFTRotate,
+    width: u16,
+    height: u16,
+    start_width: u16,
+    start_height: u16,
+    rotate: Rotate,
 }
 
 const _FONT: &[u8; 255] = &[
@@ -72,74 +68,75 @@ impl TftDisplay {
             tft_spi,
             // buffer: [0; MAX_BUFFER_SIZE],
             // mode: TFTMode::DisplayOff,
-            pcb_type: TFTPcbType::None,
+            pcb_type: PcbType::None,
 
-            tft_height: 480,
-            tft_width: 320,
-            tft_start_height: 480,
-            tft_start_width: 320,
-            tft_rotate: TFTRotate::Degrees0,
+            height: 480,
+            width: 320,
+            start_height: 480,
+            start_width: 320,
+            rotate: Rotate::Degrees0,
         }
     }
 
     pub fn init_screen_size(&mut self, _x_offset: u16, _y_offset: u16, width: u16, height: u16) {
-        self.tft_width = width;
-        self.tft_start_width = width;
-        self.tft_height = height;
-        self.tft_start_height = height;
+        self.width = width;
+        self.start_width = width;
+        self.height = height;
+        self.start_height = height;
     }
 
-    pub fn set_rotation(&mut self, rotate: TFTRotate) {
+    pub fn set_rotation(&mut self, rotate: Rotate) {
         let madctrl: u8;
 
-        self.tft_rotate = rotate;
-        match self.tft_rotate {
-            TFTRotate::Degrees0 => {
-                if self.pcb_type == TFTPcbType::Black {
-                    madctrl = ST7735MadControl::MadctlMx as u8
-                        | ST7735MadControl::MadctlMy as u8
-                        | ST7735MadControl::MadctlRgb as u8;
+        self.rotate = rotate;
+        match self.rotate {
+            Rotate::Degrees0 => {
+                if self.pcb_type == PcbType::Black {
+                    madctrl = MadControl::MadctlRgb as u8
+                        | MadControl::MadctlMx as u8
+                        | MadControl::MadctlMy as u8;
                 } else {
-                    madctrl =
-                        ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMy as u8;
+                    madctrl = MadControl::MadctlBgr as u8
+                        | MadControl::MadctlMy as u8;
                 }
-                self.tft_width = self.tft_start_width;
-                self.tft_height = self.tft_start_height;
+                self.width = self.start_width;
+                self.height = self.start_height;
             }
-            TFTRotate::Degrees90 => {
-                if self.pcb_type == TFTPcbType::Black {
-                    madctrl = ST7735MadControl::MadctlMy as u8
-                        | ST7735MadControl::MadctlMv as u8
-                        | ST7735MadControl::MadctlRgb as u8;
+            Rotate::Degrees90 => {
+                if self.pcb_type == PcbType::Black {
+                    madctrl = MadControl::MadctlRgb as u8
+                        | MadControl::MadctlMv as u8
+                        | MadControl::MadctlMy as u8;
                 } else {
-                    madctrl = ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMv as u8;
+                    madctrl = MadControl::MadctlBgr as u8
+                        | MadControl::MadctlMv as u8;
                 }
-                self.tft_width = self.tft_start_height;
-                self.tft_height = self.tft_start_width;
+                self.width = self.start_height;
+                self.height = self.start_width;
             }
-            TFTRotate::Degrees180 => {
-                if self.pcb_type == TFTPcbType::Black {
-                    madctrl = ST7735MadControl::MadctlRgb as u8;
+            Rotate::Degrees180 => {
+                if self.pcb_type == PcbType::Black {
+                    madctrl = MadControl::MadctlRgb as u8;
                 } else {
-                    madctrl =
-                        ST7735MadControl::MadctlBgr as u8 | ST7735MadControl::MadctlMx as u8;
+                    madctrl = MadControl::MadctlBgr as u8
+                        | MadControl::MadctlMx as u8;
                 }
-                self.tft_width = self.tft_start_width;
-                self.tft_height = self.tft_start_height;
+                self.width = self.start_width;
+                self.height = self.start_height;
             }
-            TFTRotate::Degrees270 => {
-                if self.pcb_type == TFTPcbType::Black {
-                    madctrl = ST7735MadControl::MadctlMx as u8
-                        | ST7735MadControl::MadctlMv as u8
-                        | ST7735MadControl::MadctlRgb as u8;
+            Rotate::Degrees270 => {
+                if self.pcb_type == PcbType::Black {
+                    madctrl = MadControl::MadctlRgb as u8
+                        | MadControl::MadctlMv as u8
+                        | MadControl::MadctlMx as u8;
                 } else {
-                    madctrl = ST7735MadControl::MadctlBgr as u8
-                        | ST7735MadControl::MadctlMv as u8
-                        | ST7735MadControl::MadctlMx as u8
-                        | ST7735MadControl::MadctlMy as u8;
+                    madctrl = MadControl::MadctlBgr as u8
+                        | MadControl::MadctlMv as u8
+                        | MadControl::MadctlMx as u8
+                        | MadControl::MadctlMy as u8;
                 }
-                self.tft_width = self.tft_start_height;
-                self.tft_height = self.tft_start_width;
+                self.width = self.start_height;
+                self.height = self.start_width;
             }
         }
 
@@ -147,7 +144,7 @@ impl TftDisplay {
     }
 
     pub fn fill_screen(&mut self, color: Color) -> Result<()> {
-        self.fill_rectangle(0, 0, self.tft_width, self.tft_height, color)
+        self.fill_rectangle(0, 0, self.width, self.height, color)
     }
 
     pub fn fill_rectangle(
@@ -158,15 +155,15 @@ impl TftDisplay {
         mut h: u16,
         color: Color,
     ) -> Result<()> {
-        if x >= self.tft_width || y >= self.tft_height {
+        if x >= self.width || y >= self.height {
             return Ok(());
         };
 
-        if (x + w) > self.tft_width {
-            w = self.tft_width - x;
+        if (x + w) > self.width {
+            w = self.width - x;
         }
-        if (y + h) > self.tft_height {
-            h = self.tft_height - y;
+        if (y + h) > self.height {
+            h = self.height - y;
         }
 
         let r = color.red();
@@ -191,41 +188,41 @@ impl TftDisplay {
     }
 
     pub fn set_addr_window(&mut self, x: u16, y: u16, w: u16, h: u16) -> Result<()> {
-        let column_start = x; // + self.x_start;
-        let column_end = x + w - 1; // + self.x_start + w - 1;
+        let xs = x;
+        let xe = x + w - 1;
 
-        let row_start = y; // + self.y_start;
-        let row_end = y + h - 1; //+ self.y_start + h - 1;
+        let ys = y;
+        let ye = y + h - 1;
 
-        if column_start >= self.tft_width {
+        if xs >= self.width {
             return Err(Error::Size {
-                given: column_start,
-                max: self.tft_width,
+                given: xs,
+                max: self.width,
             });
-        } else if column_end >= self.tft_width {
+        } else if xe >= self.width {
             return Err(Error::Size {
-                given: column_end,
-                max: self.tft_width,
+                given: xe,
+                max: self.width,
             });
-        } else if row_start >= self.tft_height {
+        } else if ys >= self.height {
             return Err(Error::Size {
-                given: row_start,
-                max: self.tft_height,
+                given: ys,
+                max: self.height,
             });
-        } else if row_end >= self.tft_height {
+        } else if ye >= self.height {
             return Err(Error::Size {
-                given: row_end,
-                max: self.tft_height,
+                given: ye,
+                max: self.height,
             });
         }
 
         self.tft_spi.write_command(Command::ColumnAddressSet)?;
-        self.tft_spi.write_word(column_start)?;
-        self.tft_spi.write_word(column_end)?;
+        self.tft_spi.write_word(xs)?;
+        self.tft_spi.write_word(xe)?;
 
         self.tft_spi.write_command(Command::RowAddressSet)?;
-        self.tft_spi.write_word(row_start)?;
-        self.tft_spi.write_word(row_end)?;
+        self.tft_spi.write_word(ys)?;
+        self.tft_spi.write_word(ye)?;
 
         Ok(())
     }
@@ -242,10 +239,11 @@ impl TftDisplay {
         self.reset_pin();
         self.init_display()?;
 
-        self.pcb_type = TFTPcbType::None;
+        self.pcb_type = PcbType::None;
         Ok(())
     }
 
+    #[cfg(foo)]
     fn init_display(&mut self) -> spi::Result<()> {
         self.tft_spi.select_display();
 
@@ -330,16 +328,101 @@ impl TftDisplay {
 
         self.tft_spi.write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;
 
-        // let mad_control: u8 = MadctlRgb;
-        self.tft_spi.write_reg(Command::MemoryAccessControl, &[0])?;
-
-        let display_height:u8 = (self.tft_start_height / 8) as u8 - 1;
+        let display_height:u8 = (self.start_height / 8) as u8 - 1;
         self.tft_spi.write_reg(Command::DisplayFunctionControl, &[0, 2, display_height])?;
+        self.tft_spi.write_reg(Command::MemoryAccessControl, &[0x48])?;
 
         self.tft_spi.write_command_delay(Command::SleepOut, Duration::from_millis(120))?;
         self.tft_spi.write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
         // self.tft_spi.write_command(Command::IdleModeOff)?;
         // self.tft_spi.write_command(Command::NormalDisplayModeOn)?;
+
+        Ok(())
+    }
+
+    #[cfg(not(foo))]
+    fn init_display(&mut self) -> spi::Result<()> {
+        self.tft_spi.select_display();
+
+        // Soft reset to set defaults
+        self.tft_spi.write_command_delay(Command::SoftReset, Duration::from_millis(150))?;
+
+        // Soft reset sets Sleep In
+        // self.tft_spi.write_command_delay(Command::SleepIn, Duration::from_millis(120))?;
+
+        // Sets normal mode frame rate to 30Hz, division ratio to fosc, 17 clocks per line
+        let frs = 0b0001; // 30Hz
+        let div = 0b0000; // fosc
+        let rtn = 0x11; // 17 clocks per line
+        self.tft_spi.write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn])?;
+        thread::sleep(Duration::from_millis(10));
+
+        // Sets idle mode frame rate, division ratio to fosc, 17 clocks per line
+        self.tft_spi.write_reg(Command::FrameRateControlIdle, &[div, rtn])?;
+
+        // Sets partial mode frame rate, division ratio to fosc, 17 clocks per line
+        self.tft_spi.write_reg(Command::FrameRateControlPartial, &[div, rtn])?;
+
+        // Software reset sets display inversion off
+        // self.rpi_spi.write_command(Command::DisplayInversionOff)?;
+
+        // let zinv = 0b0000; // disable Z-inversion
+        // let dinv = 0b0000; // column inversion
+        // self.tft_spi.write_reg(Command::DisplayInversionControl, &[(zinv << 4) | dinv])?;
+        //
+        // // Sets positive/negative gamma to +/- 4.4375
+        // let vrh1 = 0x09; // 0x0E; //  4.4375
+        // let vrh2 = 0x09; // 0x0E; // -4.4375
+        // self.tft_spi.write_reg(Command::PowerControl1, &[vrh1, vrh2])?;
+        // thread::sleep(Duration::from_millis(10));
+        //
+        // // Sets operating voltage step-up factor
+        // let bt = 0x41; // 0x00; // VGH: Vci1 * 6, VGL: Vci1 * 5
+        // let vc = 0x00; // External VCI
+        // self.tft_spi.write_reg(Command::PowerControl2, &[bt, vc])?;
+
+        let dc0 = 0b0100; // 4 H
+        let dc1 = 0b0100; // 4 H
+        let power_ctrl_cmd = [(dc1 << 4) | dc0];
+
+        // Sets operating frequencies of step-up circuit in normal mode
+        self.tft_spi.write_reg(Command::PowerControl3, &power_ctrl_cmd)?;
+
+        // // Sets operating frequencies of step-up circuit in idle mode
+        // self.tft_spi.write_reg(Command::PowerControl4, &power_ctrl_cmd)?;
+        //
+        // // Sets operating frequencies of step-up circuit in partial mode
+        // self.tft_spi.write_reg(Command::PowerControl5, &power_ctrl_cmd)?;
+
+        self.tft_spi.write_reg(Command::VcomControl1, &[0x00, 0x00, 0x00, 0x00])?;
+
+        // Sets pixel format to 18 bits / pixel
+        let dpi = 0b0110; // 18 bits / pixel
+        let dbi = 0b0110; // 18 bits / pixel
+        self.tft_spi.write_reg(Command::InterfacePixelFormat, &[(dpi << 4) | dbi])?;
+        self.tft_spi.write_reg(Command::InterfaceModeControl, &[0x00])?;
+
+        self.tft_spi.write_reg(Command::PositiveGammaControl, &[
+            0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98,
+            0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D, 0x00,
+        ])?;
+        self.tft_spi.write_reg(Command::NegativeGammaControl, &[
+            0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75,
+            0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
+        ])?;
+        self.tft_spi.write_reg(Command::DigitalGammaControl1, &[
+            0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75,
+            0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
+        ])?;
+
+        // self.tft_spi.write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;
+
+        // let display_height:u8 = (self.start_height / 8) as u8 - 1;
+        // self.tft_spi.write_reg(Command::DisplayFunctionControl, &[0, 2, display_height])?;
+        // self.tft_spi.write_reg(Command::MemoryAccessControl, &[0x48])?;
+
+        self.tft_spi.write_command_delay(Command::SleepOut, Duration::from_millis(120))?;
+        self.tft_spi.write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
 
         Ok(())
     }
