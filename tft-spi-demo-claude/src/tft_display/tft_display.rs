@@ -13,9 +13,9 @@ pub type Result<T> = result::Result<T, Error>;
 /// Bytes per pixel in 18-bit mode
 const BYTES_PER_PIXEL: usize = 3;
 
-// Pixels are sent one row per SPI transfer (at most 480 * 3 = 1440 bytes),
-// the same pattern as tft-spi-demo, which works on this board. Bigger
-// transfers (4095 bytes, then 4092) showed bars and incomplete fills.
+// Pixels are sent one row per `write_data` call (at most 480 * 3 = 1440
+// bytes, 960 once the Pi's 16-bit bus turns them into RGB565), well under
+// spidev's 4096-byte limit.
 
 /// Native (portrait) panel size of the ILI9486
 const NATIVE_WIDTH: u16 = 320;

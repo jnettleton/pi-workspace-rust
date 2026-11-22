@@ -42,18 +42,18 @@ comparison.
 The display (`/dev/spidev0.0`) and touch controller (`/dev/spidev0.1`) are
 opened as separate SPI devices, each with its own clock speed. The LCD's chip
 select (GPIO 8) is driven as a plain GPIO and held low, as in `tft-spi-demo`:
-letting the SPI hardware raise CE0 after every transfer shows bars instead of
-the image on this board. Touch reads release it while they use CE1.
+CS going high resets the board's 16-bit word counter, and with 8-bit
+transfers letting the SPI hardware raise CE0 after every transfer showed bars. Touch reads release it while they use CE1.
 
 ## Settings used by this driver
 
 | | |
 |---|---|
-| Display SPI clock | 16 MHz requested, about 15.6 MHz actual on a Pi 4 (the Pi divides its 500 MHz core clock by an even number and rounds down). `tft-spi-demo`'s 31.2 MHz (about 27.8 MHz actual) is above the ILI9486's rated speed and is the suspected cause of wrong colors and partial fills. Override with `TFT_SPI_HZ`, e.g. `TFT_SPI_HZ=8000000` |
+| Display SPI clock | 16 MHz requested, about 15.6 MHz actual on a Pi 4 (the Pi divides its 500 MHz core clock by an even number and rounds down). `tft-spi-demo`'s 31.2 MHz (about 27.8 MHz actual) is above the ILI9486's rated speed and hasn't been tried with the 16-bit bus. Override with `TFT_SPI_HZ`, e.g. `TFT_SPI_HZ=31200000` |
 | Touch SPI clock | 2 MHz (XPT2046 maximum is about 2.5 MHz) |
 | SPI mode | Mode 0 |
 | Pixel format (0x3A) | `0x55`: 16 bits per pixel (`0x66`, 18 bits, with `TFT_BUS=8`) |
-| Transfers | One row of pixels per SPI transfer (at most 1440 bytes) and each address coordinate as its own 2-byte transfer, the same pattern as `tft-spi-demo`. Bigger pixel transfers (4095, then 4092 bytes) showed bars and incomplete fills on this board |
+| Transfers | Whole 16-bit words only. One row of pixels per SPI transfer (at most 480 × 2 = 960 bytes) |
 | Full-screen update | 480 × 320 × 2 = 307,200 bytes, about 0.16 s at 15.6 MHz |
 | Touch commands | `0xD0` read X, `0x90` read Y (12-bit, differential) |
 

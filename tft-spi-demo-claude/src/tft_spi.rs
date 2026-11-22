@@ -56,9 +56,10 @@ impl BusWidth {
 ///
 /// Single bytes, as tft-spi-demo sends them, get paired with their
 /// neighbors, so the panel only sees the right words when the number of
-/// bytes before them happens to line up. That fits what the board showed:
-/// bars when transfer sizes changed, and rotations, address windows and
-/// text not working.
+/// bytes before them happens to line up. On the board that showed as bars
+/// when transfer sizes changed, landscape fills covering a third of the
+/// screen, and unreadable text. With 16-bit words all four rotations fill
+/// and text is readable.
 pub mod bus16 {
     use crate::tft_display::enums::Command;
 
@@ -216,8 +217,8 @@ mod rpi {
         /// Default SPI clock. The Pi rounds down to its core clock divided by
         /// an even number: 16 MHz runs at about 15.6 MHz on a Pi 4, within the
         /// ILI9486's rated write speed. tft-spi-demo's 31.2 MHz (about 27.8
-        /// MHz actual) is suspected of garbling colors and fills. Override with
-        /// the `TFT_SPI_HZ` environment variable.
+        /// MHz actual) is above that; it hasn't been tried with the 16-bit
+        /// bus. Override with the `TFT_SPI_HZ` environment variable.
         const SPI_CLOCK_SPEED: u32 = 16_000_000;
 
         fn clock_speed() -> u32 {
@@ -261,9 +262,10 @@ mod rpi {
 
             // Hold the LCD's chip select low the whole time, as tft-spi-demo
             // does, instead of letting the SPI hardware raise CE0 after every
-            // transfer: with CE0 toggling, this board shows bars instead of
-            // the image. Taking GPIO 8 as an output disconnects it from the SPI
-            // block; on exit rppal puts it back to CE0.
+            // transfer (CS going high resets the board's 16-bit word counter;
+            // with 8-bit transfers that showed bars). Taking GPIO 8 as an
+            // output disconnects it from the SPI block; on exit rppal puts it
+            // back to CE0.
             let tft_cs = gpio.get(Self::TFT_CS)?.into_output_low();
 
             let bus = BusWidth::from_env();
