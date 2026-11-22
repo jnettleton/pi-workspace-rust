@@ -10,8 +10,10 @@
 use std::{cell::RefCell, rc::Rc, time::Duration};
 
 use super::{
+    color::Color,
     enums::{Command, Rotate},
     error::Error,
+    font,
     tft_display::{Result, TftDisplay},
 };
 use crate::tft_spi::TftSpi;
@@ -212,4 +214,216 @@ fn full_screen_image_transfers() {
     assert_eq!(transfers.len(), 113);
     assert!(transfers[..112].iter().all(|&n| n == 4095));
     assert_eq!(transfers.iter().sum::<usize>(), 480 * 320 * 3);
+}
+
+const BLACK: [u8; 3] = [0, 0, 0];
+
+/// Checks every panel pixel against `expected(x, y)` and that nothing was
+/// sent past an address window. Returns the number of pixels sent.
+fn check_frame(spi: &MockSpi, expected: impl Fn(usize, usize) -> [u8; 3]) -> usize {
+    let p = spi.0.borrow();
+    for y in 0..p.height {
+        for x in 0..p.width {
+            assert_eq!(p.pixels[y * p.width + x], expected(x, y), "pixel ({x}, {y})");
+        }
+    }
+    assert_eq!(p.overflow, 0, "pixels sent past the window");
+    p.pixels_written
+}
+
+/// Whether (x, y) is inside the w x h rectangle at (rx, ry).
+fn inside(x: usize, y: usize, rx: usize, ry: usize, w: usize, h: usize) -> bool {
+    (rx..rx + w).contains(&x) && (ry..ry + h).contains(&y)
+}
+
+// ---- fill_rectangle ----
+
+#[test]
+fn fill_rectangle_on_screen() {
+    let (mut display, spi) = landscape();
+    display.fill_rectangle(10, 20, 30, 15, Color::RED).unwrap();
+
+    let red = Color::RED.to_rgb666_bytes();
+    let sent = check_frame(&spi, |x, y| if inside(x, y, 10, 20, 30, 15) { red } else { BLACK });
+    assert_eq!(sent, 30 * 15);
+}
+
+#[test]
+fn fill_rectangle_clipped_at_right_and_bottom() {
+    let (mut display, spi) = landscape();
+    display.fill_rectangle(470, 310, 50, 50, Color::GREEN).unwrap();
+
+    let green = Color::GREEN.to_rgb666_bytes();
+    let sent = check_frame(&spi, |x, y| if inside(x, y, 470, 310, 10, 10) { green } else { BLACK });
+    assert_eq!(sent, 10 * 10);
+}
+
+#[test]
+fn fill_rectangle_empty_or_off_screen_sends_nothing() {
+    for (x, y, w, h) in [(10, 10, 0, 5), (10, 10, 5, 0), (480, 0, 10, 10), (0, 320, 10, 10), (u16::MAX, 5, 1, 1)] {
+        let (mut display, spi) = landscape();
+        display.fill_rectangle(x, y, w, h, Color::WHITE).unwrap();
+        assert!(spi.0.borrow().pixel_transfers.is_empty(), "rect {:?}", (x, y, w, h));
+    }
+}
+
+#[test]
+fn fill_screen_in_each_rotation() {
+    for (rotation, w, h) in [
+        (Rotate::Degrees0, 320, 480),
+        (Rotate::Degrees90, 480, 320),
+        (Rotate::Degrees180, 320, 480),
+        (Rotate::Degrees270, 480, 320),
+    ] {
+        // The mock ignores MADCTL, so it just needs to match the logical size
+        let spi = MockSpi::new(w, h);
+        let mut display = TftDisplay::new(spi.clone());
+        display.set_rotation(rotation).unwrap();
+        assert_eq!((usize::from(display.width()), usize::from(display.height())), (w, h));
+
+        display.fill_screen(Color::BLUE).unwrap();
+        let blue = Color::BLUE.to_rgb666_bytes();
+        assert_eq!(check_frame(&spi, |_, _| blue), w * h, "{rotation:?}");
+
+        // Same pixel-aligned 4095-byte transfers as draw_image
+        let transfers = &spi.0.borrow().pixel_transfers;
+        assert_eq!(transfers.len(), (w * h * 3).div_ceil(4095), "{rotation:?}");
+        assert!(transfers[..transfers.len() - 1].iter().all(|&n| n == 4095));
+    }
+}
+
+#[test]
+fn fill_rectangle_overwrites() {
+    let (mut display, spi) = landscape();
+    display.fill_rectangle(0, 0, 100, 100, Color::RED).unwrap();
+    display.fill_rectangle(50, 50, 100, 100, Color::BLUE).unwrap();
+
+    let (red, blue) = (Color::RED.to_rgb666_bytes(), Color::BLUE.to_rgb666_bytes());
+    check_frame(&spi, |x, y| {
+        if inside(x, y, 50, 50, 100, 100) {
+            blue
+        } else if inside(x, y, 0, 0, 100, 100) {
+            red
+        } else {
+            BLACK
+        }
+    });
+}
+
+// ---- draw_text ----
+
+/// How a piece of text was drawn, for working out the expected pixels.
+struct TextAt<'a> {
+    text: &'a str,
+    x: usize,
+    y: usize,
+    size: usize,
+    fg: Color,
+    bg: Color,
+}
+
+impl TextAt<'_> {
+    /// Expected color of pixel (x, y), built from the font's column bytes
+    /// (bit 0 = top row). `None` outside the text's character cells.
+    fn pixel(&self, x: usize, y: usize) -> Option<[u8; 3]> {
+        let (cell_w, cell_h) = (6 * self.size, 8 * self.size);
+        for (line_index, line) in self.text.split('\n').enumerate() {
+            let line_y = self.y + line_index * cell_h;
+            for (char_index, c) in line.chars().enumerate() {
+                let cell_x = self.x + char_index * cell_w;
+                if inside(x, y, cell_x, line_y, cell_w, cell_h) {
+                    let (col, row) = ((x - cell_x) / self.size, (y - line_y) / self.size);
+                    // Column 5 is the 1-pixel gap after the glyph
+                    let on = col < 5 && (font::glyph(c)[col] >> row) & 1 == 1;
+                    let color = if on { self.fg } else { self.bg };
+                    return Some(color.to_rgb666_bytes());
+                }
+            }
+        }
+        None
+    }
+
+    /// Checks the whole panel shows just this text. Returns pixels sent.
+    fn check(&self, spi: &MockSpi) -> usize {
+        check_frame(spi, |x, y| self.pixel(x, y).unwrap_or(BLACK))
+    }
+}
+
+#[test]
+fn draw_text_single_character() {
+    let (mut display, spi) = landscape();
+    display.draw_text(5, 7, "A", Color::WHITE, Color::BLUE, 1).unwrap();
+    let text = TextAt { text: "A", x: 5, y: 7, size: 1, fg: Color::WHITE, bg: Color::BLUE };
+    assert_eq!(text.check(&spi), 6 * 8, "one 6x8 cell");
+
+    // Spot check 'A' (0x7C, 0x12, 0x11, 0x12, 0x7C): its top row is only the middle column
+    let p = spi.0.borrow();
+    let at = |x: usize, y: usize| p.pixels[y * p.width + x];
+    let (white, blue) = (Color::WHITE.to_rgb666_bytes(), Color::BLUE.to_rgb666_bytes());
+    assert_eq!([at(5, 7), at(6, 7), at(7, 7), at(8, 7), at(9, 7)], [blue, blue, white, blue, blue]);
+    assert_eq!(at(10, 7), blue, "gap column");
+}
+
+#[test]
+fn draw_text_scaled() {
+    for size in [2u8, 3, 4] {
+        let (mut display, spi) = landscape();
+        display.draw_text(20, 30, "Rust!", Color::YELLOW, Color::BLACK, size).unwrap();
+        let s = usize::from(size);
+        let text = TextAt { text: "Rust!", x: 20, y: 30, size: s, fg: Color::YELLOW, bg: Color::BLACK };
+        assert_eq!(text.check(&spi), 5 * (6 * s) * (8 * s), "size {size}");
+    }
+}
+
+#[test]
+fn draw_text_newlines_and_descenders() {
+    let s = "gyp\nAB\n\nq";
+    let (mut display, spi) = landscape();
+    display.draw_text(3, 4, s, Color::GREEN, Color::GREY, 2).unwrap();
+    TextAt { text: s, x: 3, y: 4, size: 2, fg: Color::GREEN, bg: Color::GREY }.check(&spi);
+}
+
+#[test]
+fn draw_text_size_zero_is_size_one() {
+    let (mut display, spi) = landscape();
+    display.draw_text(0, 0, "x", Color::WHITE, Color::RED, 0).unwrap();
+    TextAt { text: "x", x: 0, y: 0, size: 1, fg: Color::WHITE, bg: Color::RED }.check(&spi);
+}
+
+#[test]
+fn draw_text_unknown_characters_draw_question_mark() {
+    let (mut display, spi) = landscape();
+    display.draw_text(0, 0, "\u{e9}", Color::WHITE, Color::RED, 1).unwrap();
+    TextAt { text: "?", x: 0, y: 0, size: 1, fg: Color::WHITE, bg: Color::RED }.check(&spi);
+}
+
+#[test]
+fn draw_text_clipped_at_edges() {
+    // Runs off the right edge: "WWW" at x = 470 leaves 10 visible columns
+    let (mut display, spi) = landscape();
+    display.draw_text(470, 0, "WWW", Color::WHITE, Color::BLUE, 1).unwrap();
+    let text = TextAt { text: "WWW", x: 470, y: 0, size: 1, fg: Color::WHITE, bg: Color::BLUE };
+    assert_eq!(text.check(&spi), 10 * 8);
+
+    // Runs off the bottom: size 2 at y = 310 leaves 10 visible rows
+    let (mut display, spi) = landscape();
+    display.draw_text(0, 310, "Hi", Color::WHITE, Color::BLUE, 2).unwrap();
+    let text = TextAt { text: "Hi", x: 0, y: 310, size: 2, fg: Color::WHITE, bg: Color::BLUE };
+    assert_eq!(text.check(&spi), 2 * 12 * 10);
+
+    // Entirely off screen
+    let (mut display, spi) = landscape();
+    display.draw_text(480, 0, "off", Color::WHITE, Color::BLUE, 1).unwrap();
+    display.draw_text(0, 320, "off", Color::WHITE, Color::BLUE, 1).unwrap();
+    assert!(spi.0.borrow().pixel_transfers.is_empty());
+}
+
+#[test]
+fn text_width() {
+    type Display = TftDisplay<MockSpi>;
+    assert_eq!(Display::text_width("", 1), 0);
+    assert_eq!(Display::text_width("abc", 1), 18);
+    assert_eq!(Display::text_width("abc", 2), 36);
+    assert_eq!(Display::text_width("abc", 0), 18, "size 0 counts as 1");
+    assert_eq!(Display::text_width("ab\nlonger\nc", 1), 36, "longest line");
 }
