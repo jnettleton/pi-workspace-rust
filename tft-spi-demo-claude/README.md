@@ -49,7 +49,7 @@ the image on this board. Touch reads release it while they use CE1.
 | Touch SPI clock | 2 MHz (XPT2046 maximum is about 2.5 MHz) |
 | SPI mode | Mode 0 |
 | Pixel format (0x3A) | `0x66`: 18 bits per pixel |
-| Max transfer | 4096 bytes (spidev default `bufsiz`); pixels are sent in 4095-byte chunks so no pixel is split |
+| Max transfer | 4096 bytes (spidev default `bufsiz`); pixels are sent in 4092-byte chunks: whole pixels and a multiple of 4 bytes, like `tft-spi-demo`'s row-sized transfers (suspected cause of bars with 4095-byte chunks) |
 | Full-screen update | 480 × 320 × 3 = 460,800 bytes, about 0.13 s at 27.8 MHz |
 | Touch commands | `0xD0` read X, `0x90` read Y (12-bit, differential) |
 
@@ -99,7 +99,7 @@ What's covered:
 
 | Area | Tests |
 |---|---|
-| `fill_rectangle`, `draw_text`, `draw_image` | Every pixel on screen, clipping at all edges, nothing sent when off screen, pixel-aligned 4095-byte transfers |
+| `fill_rectangle`, `draw_text`, `draw_image` | Every pixel on screen, clipping at all edges, nothing sent when off screen, pixel-aligned 4092-byte transfers |
 | Lines, circles, rectangles, rounded rectangles | Pixel-for-pixel against plain per-pixel versions of the algorithms; clipped at every edge; no overflow at extreme coordinates |
 | Rotations | MADCTL values verified on the hardware are pinned; each rotation covers the whole panel once; the four are consistent quarter turns with no mirroring |
 | Initialization | The known-working command sequence, 18-bit pixel format, reset and ILI9486 timing |

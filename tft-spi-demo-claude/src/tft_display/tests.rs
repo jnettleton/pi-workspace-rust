@@ -106,10 +106,10 @@ fn full_screen_image_transfers() {
     display.draw_image(0, 0, 480, 320, &rgb).unwrap();
     check_placement(&spi, &rgb, 480, 320, 0, 0);
 
-    // 460800 bytes in pixel-aligned 4095-byte transfers
+    // 460800 bytes in pixel-aligned 4092-byte transfers
     let transfers = &spi.0.borrow().pixel_transfers;
     assert_eq!(transfers.len(), 113);
-    assert!(transfers[..112].iter().all(|&n| n == 4095));
+    assert!(transfers[..112].iter().all(|&n| n == 4092));
     assert_eq!(transfers.iter().sum::<usize>(), 480 * 320 * 3);
 }
 
@@ -182,10 +182,10 @@ fn fill_screen_in_each_rotation() {
         let blue = Color::BLUE.to_rgb666_bytes();
         assert_eq!(check_frame(&spi, |_, _| blue), w * h, "{rotation:?}");
 
-        // Same pixel-aligned 4095-byte transfers as draw_image
+        // Same pixel-aligned 4092-byte transfers as draw_image
         let transfers = &spi.0.borrow().pixel_transfers;
-        assert_eq!(transfers.len(), (w * h * 3).div_ceil(4095), "{rotation:?}");
-        assert!(transfers[..transfers.len() - 1].iter().all(|&n| n == 4095));
+        assert_eq!(transfers.len(), (w * h * 3).div_ceil(4092), "{rotation:?}");
+        assert!(transfers[..transfers.len() - 1].iter().all(|&n| n == 4092));
     }
 }
 

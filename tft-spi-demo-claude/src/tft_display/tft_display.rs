@@ -14,8 +14,12 @@ pub type Result<T> = result::Result<T, Error>;
 const BYTES_PER_PIXEL: usize = 3;
 
 /// spidev's default `bufsiz` is 4096 bytes per transfer. Rounded down to a
-/// whole number of pixels so a pixel is never split across two transfers.
-const MAX_BUFFER_SIZE: usize = (4096 / BYTES_PER_PIXEL) * BYTES_PER_PIXEL;
+/// multiple of 12 bytes: a whole number of pixels (so a pixel is never split
+/// across two transfers) and of 4 bytes. tft-spi-demo sends one row per
+/// transfer (960 or 1440 bytes, both multiples of 12) and works. The board
+/// showed bars with 4095-byte transfers; the suspected cause is the Pi's SPI
+/// DMA, which works in 32-bit words.
+const MAX_BUFFER_SIZE: usize = 4096 / 12 * 12;
 
 /// Native (portrait) panel size of the ILI9486
 const NATIVE_WIDTH: u16 = 320;

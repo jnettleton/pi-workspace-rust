@@ -29,7 +29,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let has_flag = |flag: &str| args.iter().any(|arg| arg == flag);
     let image_path = args.iter().find(|arg| !arg.starts_with("--"));
 
-    // Display on CE0, touch on CE1: separate SPI handles, kernel handles chip select.
+    // Display on CE0 (held low as a GPIO), touch on CE1: separate SPI handles.
     let spi = TftSpiImpl::new()?;
     let mut display = TftDisplay::new(spi.clone());
     display.initialize()?;
