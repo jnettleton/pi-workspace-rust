@@ -47,6 +47,18 @@ mod rpi {
                 inner: Arc::new(Mutex::new(InnerTftSpi::new()?)),
             })
         }
+
+        /// Runs `f` with the display's chip select released (high), so another
+        /// device on SPI0 (the touch controller on CE1) can be used without the
+        /// LCD seeing that traffic. Holding the lock also keeps display writes
+        /// from interleaving with it.
+        pub fn with_display_deselected<R>(&self, f: impl FnOnce() -> R) -> R {
+            let mut inner = self.inner.lock().unwrap();
+            inner.tft_cs.set_high();
+            let result = f();
+            inner.tft_cs.set_low();
+            result
+        }
     }
 
     impl TftSpi for TftSpiImpl {
@@ -80,6 +92,7 @@ mod rpi {
         command: bool,
         tft_dc: OutputPin,
         tft_rst: OutputPin,
+        tft_cs: OutputPin,
     }
 
     impl InnerTftSpi {
@@ -97,6 +110,11 @@ mod rpi {
         /// Physical Pin 18
         const TFT_DC: u8 = 24;
 
+        /// LCD chip select (CE0), driven as a plain GPIO
+        /// GPIO 8
+        /// Physical Pin 24
+        const TFT_CS: u8 = 8;
+
         fn new() -> std::result::Result<Self, Box<dyn std::error::Error>> {
             let spi_device = Self::create_spi()?;
 
@@ -111,11 +129,19 @@ mod rpi {
             tft_dc.set_reset_on_drop(false);
             tft_rst.set_reset_on_drop(false);
 
+            // Hold the LCD's chip select low the whole time, as tft-spi-demo
+            // does, instead of letting the SPI hardware raise CE0 after every
+            // transfer: with CE0 toggling, this board shows bars instead of
+            // the image. Taking GPIO 8 as an output disconnects it from the SPI
+            // block; on exit rppal puts it back to CE0.
+            let tft_cs = gpio.get(Self::TFT_CS)?.into_output_low();
+
             Ok(Self {
                 spi_device,
                 command: true,
                 tft_dc,
                 tft_rst,
+                tft_cs,
             })
         }
 
@@ -133,9 +159,8 @@ mod rpi {
         ///   - SPI clock signal for LCD display / touch panel
         ///
         /// `SlaveSelect::Ss0`
-        /// - SPI0 CE0
-        ///   - GPIO 8 / Physical Pin 24
-        ///   - LCD chip select signal, low level selects LCD
+        /// - SPI0 CE0, but GPIO 8 is then taken over as a plain output (see
+        ///   `new`), so the SPI block's own chip select isn't used
         ///
         /// `Mode::Mode0`
         fn create_spi() -> spi::Result<Spi> {

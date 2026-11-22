@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::tft_spi::TftSpiImpl;
 use rppal::{
     gpio::{Gpio, InputPin},
     spi::{self, Bus, Mode, SlaveSelect, Spi},
@@ -10,11 +11,12 @@ use rppal::{
 
 /// XPT2046 touch controller on the Waveshare 3.5" RPi LCD (A).
 ///
-/// Uses its own SPI handle on CE1 (`/dev/spidev0.1`, GPIO 7 / physical pin 26).
-/// The kernel drives CE0/CE1 per transfer, so the display (CE0) and touch
-/// never talk over each other and each keeps its own clock speed.
+/// Uses its own SPI handle on CE1 (`/dev/spidev0.1`, GPIO 7 / physical pin 26)
+/// with its own clock speed. The display holds its chip select (GPIO 8) low,
+/// so every touch read releases it first via `with_display_deselected`.
 pub struct TftTouch {
     spi: Spi,
+    display: TftSpiImpl,
     /// TP_IRQ: low while the panel is touched. GPIO 17 / physical pin 11.
     irq: InputPin,
 }
@@ -31,10 +33,11 @@ impl TftTouch {
     /// Readings per filtered sample (median)
     pub const FILTER_SAMPLES: usize = 15;
 
-    pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
+    /// `display` is the display's SPI handle (shares SPI0 and its chip select).
+    pub fn new(display: TftSpiImpl) -> Result<Self, Box<dyn std::error::Error>> {
         let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss1, Self::SPI_CLOCK_SPEED, Mode::Mode0)?;
         let irq = Gpio::new()?.get(Self::TP_IRQ)?.into_input_pullup();
-        Ok(Self { spi, irq })
+        Ok(Self { spi, display, irq })
     }
 
     pub fn is_touched(&self) -> bool {
@@ -99,7 +102,9 @@ impl TftTouch {
     fn read_channel(&mut self, cmd: u8) -> spi::Result<u16> {
         let tx = [cmd, 0x00, 0x00];
         let mut rx = [0u8; 3];
-        self.spi.transfer(&mut rx, &tx)?;
+        let spi = &mut self.spi;
+        self.display
+            .with_display_deselected(|| spi.transfer(&mut rx, &tx))?;
         Ok((((rx[1] as u16) << 8) | rx[2] as u16) >> 3)
     }
 }

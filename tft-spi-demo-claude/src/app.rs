@@ -30,7 +30,8 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let image_path = args.iter().find(|arg| !arg.starts_with("--"));
 
     // Display on CE0, touch on CE1: separate SPI handles, kernel handles chip select.
-    let mut display = TftDisplay::new(TftSpiImpl::new()?);
+    let spi = TftSpiImpl::new()?;
+    let mut display = TftDisplay::new(spi.clone());
     display.initialize()?;
 
     if let Some(path) = image_path {
@@ -39,7 +40,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     }
 
     let force_calibration = has_flag("--calibrate");
-    let mut touch = TftTouch::new()?;
+    let mut touch = TftTouch::new(spi)?;
 
     rotation_test(&mut display)?;
     shapes_test(&mut display)?;

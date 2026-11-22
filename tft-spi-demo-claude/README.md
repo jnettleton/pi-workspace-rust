@@ -29,15 +29,17 @@ working.
 | SPI0 MOSI | 10 | 19 | Data to LCD and touch controller |
 | SPI0 MISO | 9 | 21 | Data from touch controller |
 | SPI0 SCLK | 11 | 23 | SPI clock for both |
-| SPI0 CE0 (LCD_CS) | 8 | 24 | LCD chip select, active low |
+| SPI0 CE0 (LCD_CS) | 8 | 24 | LCD chip select, active low (driven as a GPIO) |
 | SPI0 CE1 (TP_CS) | 7 | 26 | Touch chip select, active low |
 | LCD_RS (DC) | 24 | 18 | Low = command, high = data |
 | RST | 25 | 22 | LCD reset, active low |
 | TP_IRQ | 17 | 11 | Low while the panel is touched |
 
-The kernel's SPI driver handles CE0 and CE1, so the display (`/dev/spidev0.0`)
-and touch controller (`/dev/spidev0.1`) are opened as separate SPI devices,
-each with its own clock speed.
+The display (`/dev/spidev0.0`) and touch controller (`/dev/spidev0.1`) are
+opened as separate SPI devices, each with its own clock speed. The LCD's chip
+select (GPIO 8) is driven as a plain GPIO and held low, as in `tft-spi-demo`:
+letting the SPI hardware raise CE0 after every transfer shows bars instead of
+the image on this board. Touch reads release it while they use CE1.
 
 ## Settings used by this driver
 
