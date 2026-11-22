@@ -5,7 +5,6 @@
 
 #[cfg(target_os = "linux")]
 mod app;
-#[cfg(target_os = "linux")]
 mod calibrate;
 mod picture;
 pub mod tft_display;

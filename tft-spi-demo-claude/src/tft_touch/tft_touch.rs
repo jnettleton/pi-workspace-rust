@@ -114,3 +114,13 @@ impl TftTouch {
         Ok((((rx[1] as u16) << 8) | rx[2] as u16) >> 3)
     }
 }
+
+impl super::TouchInput for TftTouch {
+    fn wait_for_touch(&mut self) -> Result<(u16, u16), Box<dyn std::error::Error>> {
+        Ok(TftTouch::wait_for_touch(self)?)
+    }
+
+    fn wait_for_release(&mut self) {
+        TftTouch::wait_for_release(self)
+    }
+}
