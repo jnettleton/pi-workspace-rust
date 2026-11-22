@@ -1,8 +1,14 @@
 //! Loading JPEG/PNG files and scaling them for the display.
 
-use std::path::Path;
+use std::{
+    path::Path,
+    time::{Duration, Instant},
+};
 
 use image::{imageops::FilterType, DynamicImage, ImageDecoder, ImageReader, ImageResult};
+
+use crate::tft_display::{color::Color, enums::Rotate, tft_display::TftDisplay};
+use crate::tft_spi::TftSpi;
 
 /// How to scale a picture to the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +57,53 @@ pub fn scale(image: &DynamicImage, width: u16, height: u16, scale: Scale) -> Pic
 /// Whether a picture is taller than it is wide (after EXIF orientation).
 pub fn is_portrait(image: &DynamicImage) -> bool {
     image.height() > image.width()
+}
+
+/// Where and how [`show`] put a picture on the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Shown {
+    pub rotation: Rotate,
+    /// Top-left corner of the scaled picture (centered on the screen)
+    pub x: i32,
+    pub y: i32,
+    pub width: u16,
+    pub height: u16,
+    pub scale_time: Duration,
+    pub draw_time: Duration,
+}
+
+/// Shows `image` centered on the screen: portrait rotation for portrait
+/// pictures, landscape otherwise. With [`Scale::Fit`] the rest of the screen
+/// is cleared to black.
+pub fn show<S: TftSpi>(
+    display: &mut TftDisplay<S>,
+    image: &DynamicImage,
+    scale_mode: Scale,
+) -> crate::tft_display::tft_display::Result<Shown> {
+    let rotation = if is_portrait(image) { Rotate::Degrees0 } else { Rotate::Degrees90 };
+    display.set_rotation(rotation)?;
+
+    let start = Instant::now();
+    let picture = scale(image, display.width(), display.height(), scale_mode);
+    let scale_time = start.elapsed();
+
+    let start = Instant::now();
+    if (picture.width, picture.height) != (display.width(), display.height()) {
+        display.fill_screen(Color::BLACK)?;
+    }
+    let x = (i32::from(display.width()) - i32::from(picture.width)) / 2;
+    let y = (i32::from(display.height()) - i32::from(picture.height)) / 2;
+    display.draw_image(x, y, picture.width, picture.height, &picture.rgb)?;
+
+    Ok(Shown {
+        rotation,
+        x,
+        y,
+        width: picture.width,
+        height: picture.height,
+        scale_time,
+        draw_time: start.elapsed(),
+    })
 }
 
 #[cfg(test)]
@@ -196,5 +249,110 @@ mod tests {
         assert!(is_portrait(&test_image(30, 40)));
         assert!(!is_portrait(&test_image(40, 30)));
         assert!(!is_portrait(&test_image(40, 40)));
+    }
+}
+
+/// `show` against the mock panel.
+#[cfg(test)]
+mod show_tests {
+    use super::*;
+    use crate::tft_display::mock::MockSpi;
+    use image::{Rgb, RgbImage};
+
+    const COLOR: Rgb<u8> = Rgb([200, 100, 52]);
+
+    /// A solid-color image: it stays exactly this color when scaled, so every
+    /// on-screen pixel can be checked.
+    fn solid(w: u32, h: u32) -> DynamicImage {
+        DynamicImage::ImageRgb8(RgbImage::from_pixel(w, h, COLOR))
+    }
+
+    /// Shows `image` on a mock panel of the logical size `show` should pick,
+    /// and checks the picture covers exactly the expected area with black around it.
+    fn check_show(image: DynamicImage, scale: Scale, expected: (Rotate, i32, i32, u16, u16)) {
+        let (rotation, x, y, w, h) = expected;
+        let (screen_w, screen_h) = match rotation {
+            Rotate::Degrees0 | Rotate::Degrees180 => (320, 480),
+            Rotate::Degrees90 | Rotate::Degrees270 => (480, 320),
+        };
+        let spi = MockSpi::new(screen_w, screen_h);
+        let mut display = TftDisplay::new(spi.clone());
+        // Start from a screen full of something else, like a real panel
+        display.set_rotation(rotation).unwrap();
+        display.fill_screen(Color::WHITE).unwrap();
+
+        let shown = show(&mut display, &image, scale).unwrap();
+        assert_eq!(
+            (shown.rotation, shown.x, shown.y, shown.width, shown.height),
+            expected,
+            "{}x{} {scale:?}",
+            image.width(),
+            image.height()
+        );
+
+        let color = Color::rgb(COLOR[0], COLOR[1], COLOR[2]).to_rgb666_bytes();
+        let p = spi.0.borrow();
+        for py in 0..screen_h {
+            for px in 0..screen_w {
+                let inside = (x..x + i32::from(w)).contains(&(px as i32)) && (y..y + i32::from(h)).contains(&(py as i32));
+                let want = if inside { color } else { [0, 0, 0] };
+                assert_eq!(p.pixels[py * screen_w + px], want, "pixel ({px}, {py})");
+            }
+        }
+    }
+
+    #[test]
+    fn landscape_picture_fits_with_side_borders() {
+        // 4:3 on 480x320: limited by height, centered horizontally
+        check_show(solid(4000, 3000), Scale::Fit, (Rotate::Degrees90, 26, 0, 427, 320));
+    }
+
+    #[test]
+    fn wide_picture_fits_with_top_and_bottom_borders() {
+        check_show(solid(1600, 600), Scale::Fit, (Rotate::Degrees90, 0, 70, 480, 180));
+    }
+
+    #[test]
+    fn portrait_picture_uses_portrait_rotation() {
+        check_show(solid(300, 600), Scale::Fit, (Rotate::Degrees0, 40, 0, 240, 480));
+    }
+
+    #[test]
+    fn square_picture_is_shown_in_landscape() {
+        check_show(solid(1000, 1000), Scale::Fit, (Rotate::Degrees90, 80, 0, 320, 320));
+    }
+
+    #[test]
+    fn small_picture_is_scaled_up() {
+        check_show(solid(48, 32), Scale::Fit, (Rotate::Degrees90, 0, 0, 480, 320));
+    }
+
+    #[test]
+    fn fill_covers_the_screen() {
+        check_show(solid(4000, 3000), Scale::Fill, (Rotate::Degrees90, 0, 0, 480, 320));
+        check_show(solid(300, 600), Scale::Fill, (Rotate::Degrees0, 0, 0, 320, 480));
+    }
+
+    /// Fill crops to the middle: the left and right edges of a wide picture are cut off.
+    #[test]
+    fn fill_crops_to_the_center() {
+        // 960x320: left third red, middle third green, right third blue
+        let image = DynamicImage::ImageRgb8(RgbImage::from_fn(960, 320, |x, _| match x / 320 {
+            0 => Rgb([255, 0, 0]),
+            1 => Rgb([0, 255, 0]),
+            _ => Rgb([0, 0, 255]),
+        }));
+        let spi = MockSpi::new(480, 320);
+        let mut display = TftDisplay::new(spi.clone());
+        show(&mut display, &image, Scale::Fill).unwrap();
+
+        // Nothing to scale (already 320 high), so the screen shows picture
+        // columns 240..720: the last quarter of red, all of green, and the
+        // first quarter of blue; the outer 240 columns on each side are cut.
+        let p = spi.0.borrow();
+        let at = |x: usize| p.pixels[160 * 480 + x];
+        assert_eq!(at(40), Color::RED.to_rgb666_bytes());
+        assert_eq!(at(240), Color::GREEN.to_rgb666_bytes());
+        assert_eq!(at(440), Color::BLUE.to_rgb666_bytes());
     }
 }

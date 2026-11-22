@@ -146,21 +146,11 @@ fn show_image(display: &mut Display, path: &Path, scale: Scale) -> Result<(), Bo
     let image = picture::open(path).map_err(|err| format!("{}: {err}", path.display()))?;
     println!("{}: {}x{}, decoded in {:?}", path.display(), image.width(), image.height(), start.elapsed());
 
-    let rotation = if picture::is_portrait(&image) { Rotate::Degrees0 } else { Rotate::Degrees90 };
-    display.set_rotation(rotation)?;
-
-    let start = Instant::now();
-    let picture = picture::scale(&image, display.width(), display.height(), scale);
-    println!("scaled to {}x{} ({scale:?}) in {:?}", picture.width, picture.height, start.elapsed());
-
-    let start = Instant::now();
-    if (picture.width, picture.height) != (display.width(), display.height()) {
-        display.fill_screen(Color::BLACK)?;
-    }
-    let x = (i32::from(display.width()) - i32::from(picture.width)) / 2;
-    let y = (i32::from(display.height()) - i32::from(picture.height)) / 2;
-    display.draw_image(x, y, picture.width, picture.height, &picture.rgb)?;
-    println!("drawn in {:?}", start.elapsed());
+    let shown = picture::show(display, &image, scale)?;
+    println!(
+        "scaled to {}x{} ({scale:?}) in {:?}, drawn at ({}, {}) in {:?}",
+        shown.width, shown.height, shown.scale_time, shown.x, shown.y, shown.draw_time
+    );
     Ok(())
 }
 
