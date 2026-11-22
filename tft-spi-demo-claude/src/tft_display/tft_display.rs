@@ -173,6 +173,12 @@ impl<S: TftSpi> TftDisplay<S> {
         shapes::line(x0, y0, x1, y1, |rect| self.fill_rect_clipped(rect, color))
     }
 
+    /// Draws a 1-pixel rectangle outline with its top-left corner at (x, y).
+    /// Clipped to the screen. Use `fill_rectangle` for a solid one.
+    pub fn draw_rectangle(&mut self, x: i32, y: i32, w: u16, h: u16, color: Color) -> Result<()> {
+        shapes::rectangle(x, y, w, h, |rect| self.fill_rect_clipped(rect, color))
+    }
+
     /// Draws a 1-pixel circle outline centered on (cx, cy). Clipped to the screen.
     pub fn draw_circle(&mut self, cx: i32, cy: i32, radius: u16, color: Color) -> Result<()> {
         shapes::circle(cx, cy, radius, |rect| self.fill_rect_clipped(rect, color))

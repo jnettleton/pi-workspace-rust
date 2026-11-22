@@ -52,6 +52,31 @@ pub fn line<E>(
     }
 }
 
+/// 1-pixel rectangle outline with its top-left corner at (x, y). Each pixel is
+/// drawn once: top and bottom edges span the full width, the sides fill in
+/// between them.
+pub fn rectangle<E>(
+    x: i32,
+    y: i32,
+    w: u16,
+    h: u16,
+    mut emit: impl FnMut(Rect) -> Result<(), E>,
+) -> Result<(), E> {
+    let (w, h) = (i32::from(w), i32::from(h));
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
+    if w <= 2 || h <= 2 {
+        // No inside to leave empty: it's a solid block
+        return emit((x, y, w, h));
+    }
+
+    emit((x, y, w, 1))?; // top
+    emit((x, y + h - 1, w, 1))?; // bottom
+    emit((x, y + 1, 1, h - 2))?; // left
+    emit((x + w - 1, y + 1, 1, h - 2)) // right
+}
+
 /// Circle outline centered on (cx, cy) (midpoint algorithm).
 pub fn circle<E>(
     cx: i32,
@@ -240,6 +265,39 @@ mod tests {
         let (pixels, rects) = line_pixels(0, 0, 200, 10);
         assert_eq!(pixels.len(), 201);
         assert_eq!(rects, 11);
+    }
+
+    #[test]
+    fn rectangle_outlines() {
+        let outline = |x: i32, y: i32, w: u16, h: u16| {
+            rasterize(|emit| {
+                let mut seen = Pixels::new();
+                rectangle(x, y, w, h, |(rx, ry, rw, rh)| {
+                    // No pixel is drawn twice
+                    for px in rx..rx + rw {
+                        for py in ry..ry + rh {
+                            assert!(seen.insert((px, py)), "({px}, {py}) drawn twice");
+                        }
+                    }
+                    emit((rx, ry, rw, rh))
+                })
+                .unwrap()
+            })
+        };
+        let border = |x: i32, y: i32, w: i32, h: i32| -> Pixels {
+            (x..x + w)
+                .flat_map(|px| (y..y + h).map(move |py| (px, py)))
+                .filter(|&(px, py)| px == x || px == x + w - 1 || py == y || py == y + h - 1)
+                .collect()
+        };
+
+        for (x, y, w, h) in [(0, 0, 10, 5), (-3, 7, 4, 3), (5, 5, 3, 3), (2, 2, 1, 1), (0, 0, 2, 9), (0, 0, 9, 1)] {
+            let (pixels, rects) = outline(x, y, w, h);
+            assert_eq!(pixels, border(x, y, i32::from(w), i32::from(h)), "{:?}", (x, y, w, h));
+            assert!(rects <= 4);
+        }
+        assert_eq!(outline(5, 5, 0, 10).0.len(), 0);
+        assert_eq!(outline(5, 5, 10, 0).0.len(), 0);
     }
 
     #[test]

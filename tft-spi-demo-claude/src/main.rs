@@ -102,8 +102,16 @@ fn shapes_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
     display.fill_circle(w - 1, h - 1, 40, Color::MAGENTA)?;
     display.draw_circle(-10, h / 2, 50, Color::WHITE)?;
 
+    // Nested rectangle outlines, and one clipped by the top edge
+    for i in 0..5 {
+        let inset = i * 8;
+        let size = (100 - 2 * inset) as u16;
+        display.draw_rectangle(w / 4 - 50 + inset, h / 2 - 50 + inset, size, size, Color::RED)?;
+    }
+    display.draw_rectangle(w / 2 - 30, -20, 60, 50, Color::BLUE)?;
+
     let text_y = display.height() - 20;
-    display.draw_text(10, text_y, "draw_line / draw_circle", Color::WHITE, Color::BLACK, 2)?;
+    display.draw_text(10, text_y, "lines, circles, rectangles", Color::WHITE, Color::BLACK, 2)?;
     thread::sleep(Duration::from_secs(2));
     Ok(())
 }
