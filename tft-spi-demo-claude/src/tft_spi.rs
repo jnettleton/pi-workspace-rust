@@ -102,8 +102,14 @@ mod rpi {
 
             let gpio = Gpio::new()?;
             // Start DC low so it matches `command: true`.
-            let tft_dc = gpio.get(Self::TFT_DC)?.into_output_low();
-            let tft_rst = gpio.get(Self::TFT_RST)?.into_output_high();
+            let mut tft_dc = gpio.get(Self::TFT_DC)?.into_output_low();
+            let mut tft_rst = gpio.get(Self::TFT_RST)?.into_output_high();
+            // rppal turns pins back into inputs when they're dropped. GPIO 25
+            // has a pull-down by default, so RST would go low when the program
+            // exits and hold the LCD in reset, blanking whatever was drawn
+            // (e.g. after the picture viewer). Keep both pins driven instead.
+            tft_dc.set_reset_on_drop(false);
+            tft_rst.set_reset_on_drop(false);
 
             Ok(Self {
                 spi_device,
