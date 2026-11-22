@@ -314,7 +314,9 @@ impl<S: TftSpi> TftDisplay<S> {
             .map(|line| line.chars().filter(|&c| c != '\r').count())
             .max()
             .unwrap_or(0);
-        (longest as u16).saturating_mul(font::CHAR_ADVANCE * u16::from(size.max(1)))
+        u16::try_from(longest)
+            .unwrap_or(u16::MAX)
+            .saturating_mul(font::CHAR_ADVANCE * u16::from(size.max(1)))
     }
 
     /// Draws one character cell (glyph plus 1 column of spacing, in `bg`),

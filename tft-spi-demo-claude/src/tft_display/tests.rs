@@ -323,6 +323,9 @@ fn text_width() {
     assert_eq!(Display::text_width("abc", 2), 36);
     assert_eq!(Display::text_width("abc", 0), 18, "size 0 counts as 1");
     assert_eq!(Display::text_width("ab\nlonger\nc", 1), 36, "longest line");
+    // Very long text saturates instead of wrapping around
+    assert_eq!(Display::text_width(&"x".repeat(20_000), 1), u16::MAX);
+    assert_eq!(Display::text_width(&"x".repeat(65_537), 1), u16::MAX, "more chars than u16");
 }
 
 /// Windows line endings ("\r\n") draw the same as "\n".
