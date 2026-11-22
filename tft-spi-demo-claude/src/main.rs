@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut touch = TftTouch::new()?;
 
     rotation_test(&mut display)?;
+    shapes_test(&mut display)?;
 
     // Landscape UI. The calibration only applies to the rotation it was made in.
     display.set_rotation(Rotate::Degrees90)?;
@@ -49,16 +50,19 @@ fn main() -> Result<(), Box<dyn Error>> {
     draw_ui(&mut display)?;
     let button_y = display.height() - BUTTON_H;
 
-    // Touch to draw dots; touch a button to highlight it. Ctrl-C to quit.
+    // Drag to draw; tap a button to highlight it. Ctrl-C to quit.
     println!("touch the screen (Ctrl-C to quit)...");
+    let mut last_point: Option<(i32, i32)> = None;
     loop {
         let Some(raw) = touch.read_filtered(TftTouch::FILTER_SAMPLES)? else {
+            last_point = None; // finger lifted: next touch starts a new stroke
             thread::sleep(Duration::from_millis(10));
             continue;
         };
         let (x, y) = calibration.to_screen(raw, display.width(), display.height());
 
         if y >= button_y {
+            last_point = None;
             let index = usize::from(x / BUTTON_W).min(BUTTONS.len() - 1);
             println!("touch ({x}, {y}): button {}", BUTTONS[index].0);
             draw_button(&mut display, index, true)?;
@@ -66,10 +70,42 @@ fn main() -> Result<(), Box<dyn Error>> {
             draw_button(&mut display, index, false)?;
         } else {
             println!("touch ({x}, {y}) raw {raw:?}");
-            let (dot_x, dot_y) = (x.saturating_sub(1), y.saturating_sub(1).min(button_y - 3));
-            display.fill_rectangle(dot_x, dot_y, 3, 3, Color::WHITE)?;
+            let point = (i32::from(x), i32::from(y));
+            match last_point {
+                Some((last_x, last_y)) => {
+                    display.draw_line(last_x, last_y, point.0, point.1, Color::WHITE)?
+                }
+                None => display.fill_circle(point.0, point.1, 1, Color::WHITE)?,
+            }
+            last_point = Some(point);
         }
     }
+}
+
+/// Lines and circles, including some that run off the screen edges.
+fn shapes_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
+    display.set_rotation(Rotate::Degrees90)?;
+    display.fill_screen(Color::BLACK)?;
+    let (w, h) = (i32::from(display.width()), i32::from(display.height()));
+
+    // Fan of lines from the top-left corner to points along the bottom and right edges
+    for i in 0..=8 {
+        display.draw_line(0, 0, i * (w - 1) / 8, h - 1, Color::CYAN)?;
+        display.draw_line(0, 0, w - 1, i * (h - 1) / 8, Color::GREEN)?;
+    }
+
+    // Concentric outlines, a filled circle, and circles clipped by the edges
+    for r in (10..=60).step_by(10) {
+        display.draw_circle(w * 3 / 4, h / 2, r, Color::YELLOW)?;
+    }
+    display.fill_circle(w * 3 / 4, h / 2, 6, Color::RED)?;
+    display.fill_circle(w - 1, h - 1, 40, Color::MAGENTA)?;
+    display.draw_circle(-10, h / 2, 50, Color::WHITE)?;
+
+    let text_y = display.height() - 20;
+    display.draw_text(10, text_y, "draw_line / draw_circle", Color::WHITE, Color::BLACK, 2)?;
+    thread::sleep(Duration::from_secs(2));
+    Ok(())
 }
 
 /// Each orientation gets a background color and a green block in its

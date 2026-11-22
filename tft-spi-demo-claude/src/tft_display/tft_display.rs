@@ -2,7 +2,7 @@ use crate::tft_display::{
     color::Color,
     enums::{madctl, Command, Rotate},
     error::Error,
-    font,
+    font, shapes,
 };
 use crate::tft_spi::TftSpi;
 
@@ -160,6 +160,45 @@ impl<S: TftSpi> TftDisplay<S> {
         }
 
         Ok(())
+    }
+
+    /// Sets one pixel. Off-screen coordinates are ignored.
+    pub fn draw_pixel(&mut self, x: i32, y: i32, color: Color) -> Result<()> {
+        self.fill_rect_clipped((x, y, 1, 1), color)
+    }
+
+    /// Draws a 1-pixel line from (x0, y0) to (x1, y1), both ends included.
+    /// Coordinates may be off-screen; the line is clipped.
+    pub fn draw_line(&mut self, x0: i32, y0: i32, x1: i32, y1: i32, color: Color) -> Result<()> {
+        shapes::line(x0, y0, x1, y1, |rect| self.fill_rect_clipped(rect, color))
+    }
+
+    /// Draws a 1-pixel circle outline centered on (cx, cy). Clipped to the screen.
+    pub fn draw_circle(&mut self, cx: i32, cy: i32, radius: u16, color: Color) -> Result<()> {
+        shapes::circle(cx, cy, radius, |rect| self.fill_rect_clipped(rect, color))
+    }
+
+    /// Draws a filled circle centered on (cx, cy). Clipped to the screen.
+    pub fn fill_circle(&mut self, cx: i32, cy: i32, radius: u16, color: Color) -> Result<()> {
+        shapes::filled_circle(cx, cy, radius, |rect| self.fill_rect_clipped(rect, color))
+    }
+
+    /// `fill_rectangle` for signed, possibly off-screen rectangles.
+    fn fill_rect_clipped(&mut self, (x, y, w, h): shapes::Rect, color: Color) -> Result<()> {
+        let x0 = x.max(0);
+        let y0 = y.max(0);
+        let x1 = x.saturating_add(w).min(i32::from(self.width));
+        let y1 = y.saturating_add(h).min(i32::from(self.height));
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        self.fill_rectangle(
+            x0 as u16,
+            y0 as u16,
+            (x1 - x0) as u16,
+            (y1 - y0) as u16,
+            color,
+        )
     }
 
     /// Draws `text` with its top-left corner at (`x`, `y`), scaled by `size`
