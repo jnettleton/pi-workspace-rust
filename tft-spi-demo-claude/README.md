@@ -11,16 +11,20 @@ viewer.
 | Board | Waveshare 3.5" RPi LCD (A), plugs onto the 40-pin header |
 | LCD controller | ILI9486 |
 | Resolution | 320 × 480 native (portrait), 480 × 320 in landscape |
-| Interface | 4-wire SPI, 8-bit: DC low = command byte, DC high = parameter/pixel bytes |
-| Color | 18-bit RGB666, 3 bytes per pixel (the ILI9486 only supports 18-bit color over SPI) |
+| Interface | SPI into shift registers that feed the ILI9486's 16-bit parallel bus: every command, parameter and pixel is a 16-bit word. DC low = command, DC high = parameter/pixel |
+| Color | 16-bit RGB565, 2 bytes per pixel |
 | Color order | Panel is wired BGR; set with the MADCTL BGR bit |
 | Touch controller | XPT2046, resistive, 12-bit readings (0–4095) |
 | Touch interface | SPI on its own chip select (CE1), pen-down interrupt on TP_IRQ |
 
-Some documentation for this board describes a 16-bit shift-register
-interface (commands sent as `[0x00, cmd]`, 16-bit color). This unit works
-with plain 8-bit SPI and 18-bit color, as found while getting `tft-spi-demo`
-working.
+`tft-spi-demo` sends single bytes and 18-bit color, as for a plain SPI
+ILI9486. On this board that only partly works: the shift registers pair each
+byte with its neighbor, so whether a command gets through depends on how many
+bytes came before it. Full-screen fills look right, but rotation, address
+windows and text don't. This driver sends 16-bit words as Waveshare's own
+driver does: commands as `[0x00, cmd]`, each parameter as `[0x00, p]`, and
+RGB565 pixels. `TFT_BUS=8` switches back to `tft-spi-demo`'s 8-bit way for
+comparison.
 
 ## Pinout
 
@@ -48,9 +52,9 @@ the image on this board. Touch reads release it while they use CE1.
 | Display SPI clock | 16 MHz requested, about 15.6 MHz actual on a Pi 4 (the Pi divides its 500 MHz core clock by an even number and rounds down). `tft-spi-demo`'s 31.2 MHz (about 27.8 MHz actual) is above the ILI9486's rated speed and is the suspected cause of wrong colors and partial fills. Override with `TFT_SPI_HZ`, e.g. `TFT_SPI_HZ=8000000` |
 | Touch SPI clock | 2 MHz (XPT2046 maximum is about 2.5 MHz) |
 | SPI mode | Mode 0 |
-| Pixel format (0x3A) | `0x66`: 18 bits per pixel |
+| Pixel format (0x3A) | `0x55`: 16 bits per pixel (`0x66`, 18 bits, with `TFT_BUS=8`) |
 | Transfers | One row of pixels per SPI transfer (at most 1440 bytes) and each address coordinate as its own 2-byte transfer, the same pattern as `tft-spi-demo`. Bigger pixel transfers (4095, then 4092 bytes) showed bars and incomplete fills on this board |
-| Full-screen update | 480 × 320 × 3 = 460,800 bytes, about 0.24 s at 15.6 MHz |
+| Full-screen update | 480 × 320 × 2 = 307,200 bytes, about 0.16 s at 15.6 MHz |
 | Touch commands | `0xD0` read X, `0x90` read Y (12-bit, differential) |
 
 Rotation is set with MADCTL (0x36), always with the BGR bit (`0x08`):
@@ -86,7 +90,7 @@ directory.
 
 ## Tests
 
-`cargo test` runs on any platform, including Windows (78 tests, a few
+`cargo test` runs on any platform, including Windows (82 tests, a few
 seconds). The Pi-only parts (`rppal`, the SPI and touch drivers, the app's
 main loop) are left out of non-Linux builds.
 

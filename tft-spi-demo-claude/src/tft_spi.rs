@@ -7,12 +7,11 @@ pub use rpi::TftSpiImpl;
 
 /// Low-level access to the ILI9486 on the Waveshare 3.5" RPi LCD (A).
 ///
-/// 4-wire 8-bit SPI: DC low for a command byte, DC high for parameter and
-/// pixel bytes. Over SPI the ILI9486 only supports 18-bit color, so pixels are
-/// 3 bytes each (see `Color::to_rgb666_bytes`).
-///
-/// `TftSpiImpl` is the Raspberry Pi implementation (Linux only); tests use a
-/// mock panel instead.
+/// Callers always speak plain 8-bit ILI9486: one byte per command and
+/// parameter (DC low for commands, high for data) and 18-bit pixels, 3 bytes
+/// each (see `Color::to_rgb666_bytes`). `TftSpiImpl` (Raspberry Pi, Linux
+/// only) translates that for the board's 16-bit interface (see `bus16`);
+/// tests use a mock panel that decodes the 8-bit form.
 pub trait TftSpi {
     fn reset_pin(&mut self);
     /// Sends a command followed by its parameter bytes.
@@ -21,6 +20,121 @@ pub trait TftSpi {
     fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> Result<usize>;
     /// Sends raw bytes with DC high (parameters or pixel data).
     fn write_data(&mut self, data: &[u8]) -> Result<usize>;
+}
+
+/// How bytes reach the panel.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BusWidth {
+    /// One byte per command and parameter, 18-bit pixels (as tft-spi-demo does).
+    Eight,
+    /// 16-bit words, as Waveshare's own driver does (see `bus16`).
+    Sixteen,
+}
+
+impl BusWidth {
+    /// `TFT_BUS=8` or `TFT_BUS=16` (the default).
+    pub fn from_env() -> Self {
+        match std::env::var("TFT_BUS").as_deref().map(str::trim) {
+            Ok("8") => Self::Eight,
+            Ok("16") | Err(_) => Self::Sixteen,
+            Ok(other) => {
+                eprintln!("ignoring TFT_BUS={other:?}: use 8 or 16");
+                Self::Sixteen
+            }
+        }
+    }
+}
+
+/// The Waveshare 3.5" RPi LCD (A) doesn't take SPI directly: shift registers
+/// turn the SPI stream into 16-bit words for the ILI9486's parallel bus,
+/// latching one word every 16 clocks while CS is low. So every transfer must
+/// be whole 16-bit words:
+///
+/// - a command byte `c` is sent as `[0x00, c]` (DC low)
+/// - each parameter byte `p` as `[0x00, p]` (DC high)
+/// - pixels as RGB565, 2 bytes each, big-endian (pixel format `0x55`)
+///
+/// Single bytes, as tft-spi-demo sends them, get paired with their
+/// neighbors, so the panel only sees the right words when the number of
+/// bytes before them happens to line up. That fits what the board showed:
+/// bars when transfer sizes changed, and rotations, address windows and
+/// text not working.
+pub mod bus16 {
+    use crate::tft_display::enums::Command;
+
+    /// Pixel format parameter for 16 bits per pixel (DPI and DBI)
+    pub const PIXEL_FORMAT_16: u8 = 0x55;
+
+    pub fn command(cmd: u8) -> [u8; 2] {
+        [0x00, cmd]
+    }
+
+    /// Data bytes following `last_command`, as the board needs them.
+    pub fn data(last_command: u8, data: &[u8]) -> Vec<u8> {
+        if last_command == Command::MemoryWrite as u8 {
+            pixels(data)
+        } else if last_command == Command::InterfacePixelFormat as u8 {
+            // The caller asks for 18-bit (0x66); this bus sends 16-bit pixels
+            data.iter().flat_map(|_| [0x00, PIXEL_FORMAT_16]).collect()
+        } else {
+            data.iter().flat_map(|&p| [0x00, p]).collect()
+        }
+    }
+
+    /// 18-bit pixels (3 bytes each, the top 6 bits used) to RGB565.
+    #[allow(clippy::manual_is_multiple_of)] // is_multiple_of needs Rust 1.87+
+    pub fn pixels(rgb666: &[u8]) -> Vec<u8> {
+        debug_assert!(rgb666.len() % 3 == 0, "{} bytes isn't whole pixels", rgb666.len());
+        // `chunks_exact` rather than `as_chunks` (Rust 1.88+) for older Pi toolchains
+        #[allow(clippy::chunks_exact_to_as_chunks)]
+        rgb666
+            .chunks_exact(3)
+            .flat_map(|p| {
+                let (r, g, b) = (u16::from(p[0]), u16::from(p[1]), u16::from(p[2]));
+                (((r & 0xF8) << 8) | ((g & 0xFC) << 3) | (b >> 3)).to_be_bytes()
+            })
+            .collect()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use crate::tft_display::color::Color;
+
+        #[test]
+        fn commands_and_parameters_are_16_bit_words() {
+            assert_eq!(command(0x36), [0x00, 0x36]);
+            assert_eq!(data(0x36, &[0x28]), [0x00, 0x28]);
+            // CASET 0..479
+            assert_eq!(data(0x2A, &[0x00, 0x00, 0x01, 0xDF]), [0, 0x00, 0, 0x00, 0, 0x01, 0, 0xDF]);
+            assert!(data(0x2A, &[]).is_empty());
+        }
+
+        #[test]
+        fn pixel_format_becomes_16_bit() {
+            assert_eq!(data(0x3A, &[0x66]), [0x00, 0x55]);
+        }
+
+        #[test]
+        fn pixels_become_rgb565() {
+            let rgb = |c: Color| c.to_rgb666_bytes();
+            assert_eq!(pixels(&rgb(Color::RED)), [0xF8, 0x00]);
+            assert_eq!(pixels(&rgb(Color::GREEN)), [0x07, 0xE0]);
+            assert_eq!(pixels(&rgb(Color::BLUE)), [0x00, 0x1F]);
+            assert_eq!(pixels(&rgb(Color::WHITE)), [0xFF, 0xFF]);
+            assert_eq!(pixels(&rgb(Color::BLACK)), [0x00, 0x00]);
+
+            let row: Vec<u8> = [Color::RED, Color::BLUE].iter().flat_map(|c| c.to_rgb666_bytes()).collect();
+            assert_eq!(data(0x2C, &row), [0xF8, 0x00, 0x00, 0x1F]);
+        }
+
+        #[test]
+        fn every_transfer_is_whole_words() {
+            for (cmd, bytes) in [(0x36, vec![0x28]), (0xE0, vec![0x0F; 15]), (0x2C, vec![0xFC; 3 * 7])] {
+                assert_eq!(data(cmd, &bytes).len() % 2, 0, "cmd {cmd:#04x}");
+            }
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -33,7 +147,7 @@ mod rpi {
         spi::{self, Bus, Mode, SlaveSelect, Spi},
     };
 
-    use super::TftSpi;
+    use super::{bus16, BusWidth, TftSpi};
     use crate::tft_display::{enums::Command, tft_display::Result};
 
     #[derive(Clone)]
@@ -89,6 +203,9 @@ mod rpi {
 
     struct InnerTftSpi {
         spi_device: Spi,
+        bus: BusWidth,
+        /// Last command sent, so `write_data` knows whether it's pixels
+        last_command: u8,
         command: bool,
         tft_dc: OutputPin,
         tft_rst: OutputPin,
@@ -149,8 +266,13 @@ mod rpi {
             // block; on exit rppal puts it back to CE0.
             let tft_cs = gpio.get(Self::TFT_CS)?.into_output_low();
 
+            let bus = BusWidth::from_env();
+            println!("display bus: {bus:?} (set TFT_BUS=8 or 16 to change)");
+
             Ok(Self {
                 spi_device,
+                bus,
+                last_command: 0,
                 command: true,
                 tft_dc,
                 tft_rst,
@@ -202,12 +324,21 @@ mod rpi {
 
         fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
             self.dc_set_low();
-            self.spi_device.write(&[cmd as u8])
+            self.last_command = cmd as u8;
+            match self.bus {
+                BusWidth::Eight => self.spi_device.write(&[cmd as u8]),
+                BusWidth::Sixteen => self.spi_device.write(&bus16::command(cmd as u8)),
+            }
         }
 
         fn write_data(&mut self, data: &[u8]) -> spi::Result<usize> {
             self.dc_set_high();
-            self.spi_device.write(data)
+            match self.bus {
+                BusWidth::Eight => self.spi_device.write(data),
+                BusWidth::Sixteen => self
+                    .spi_device
+                    .write(&bus16::data(self.last_command, data)),
+            }
         }
 
         fn dc_set_low(&mut self) {
