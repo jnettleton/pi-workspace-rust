@@ -214,13 +214,14 @@ mod rpi {
     }
 
     impl InnerTftSpi {
-        /// Default SPI clock, as in tft-spi-demo. The Pi rounds down to its
-        /// core clock divided by an even number, so on a Pi 4 this runs at
-        /// about 27.8 MHz. That's above the ILI9486's rated write speed but
-        /// draws cleanly on this board with the 16-bit bus. If pixels get
-        /// corrupted, override it with the `TFT_SPI_HZ` environment
-        /// variable, e.g. `TFT_SPI_HZ=16000000` (about 15.6 MHz).
-        const SPI_CLOCK_SPEED: u32 = 31_200_000;
+        /// Default SPI clock. The Pi rounds down to its core clock divided by
+        /// an even number, so on a Pi 4 this runs at about 15.6 MHz.
+        /// tft-spi-demo's 31.2 MHz (about 27.8 MHz) fills solid colors and
+        /// draws text fine, but the board's shift registers then latch some
+        /// pixel bits a position off: green and blue values roughly double
+        /// and wrap, so photos show grey as cyan and orange as yellow-green.
+        /// Override with the `TFT_SPI_HZ` environment variable.
+        const SPI_CLOCK_SPEED: u32 = 16_000_000;
 
         fn clock_speed() -> u32 {
             match std::env::var("TFT_SPI_HZ") {

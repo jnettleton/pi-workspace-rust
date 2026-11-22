@@ -49,12 +49,12 @@ transfers letting the SPI hardware raise CE0 after every transfer showed bars. T
 
 | | |
 |---|---|
-| Display SPI clock | 31.2 MHz requested, about 27.8 MHz actual on a Pi 4 (the Pi divides its 500 MHz core clock by an even number and rounds down). Above the ILI9486's rated speed but draws cleanly on this board. If pixels get corrupted, override with `TFT_SPI_HZ`, e.g. `TFT_SPI_HZ=16000000` (about 15.6 MHz) |
+| Display SPI clock | 16 MHz requested, about 15.6 MHz actual on a Pi 4 (the Pi divides its 500 MHz core clock by an even number and rounds down). At `tft-spi-demo`'s 31.2 MHz (about 27.8 MHz) solid colors and text look fine but photo colors are badly off (some pixel bits land one position off). Override with `TFT_SPI_HZ` |
 | Touch SPI clock | 2 MHz (XPT2046 maximum is about 2.5 MHz) |
 | SPI mode | Mode 0 |
 | Pixel format (0x3A) | `0x55`: 16 bits per pixel (`0x66`, 18 bits, with `TFT_BUS=8`) |
 | Transfers | Whole 16-bit words only. One row of pixels per SPI transfer (at most 480 × 2 = 960 bytes) |
-| Full-screen update | 480 × 320 × 2 = 307,200 bytes, about 0.09 s at 27.8 MHz |
+| Full-screen update | 480 × 320 × 2 = 307,200 bytes, about 0.16 s at 15.6 MHz |
 | Touch commands | `0xD0` read X, `0x90` read Y (12-bit, differential) |
 
 Rotation is set with MADCTL (0x36), always with the BGR bit (`0x08`):
