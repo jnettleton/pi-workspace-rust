@@ -18,12 +18,25 @@ use super::{
 };
 use crate::tft_spi::TftSpi;
 
+/// Physical display memory (GRAM) size: the panel's native portrait layout.
+const GRAM_W: usize = 320;
+const GRAM_H: usize = 480;
+
 /// What the mock panel has received.
+///
+/// Pixels are recorded twice:
+/// - `pixels`: at the logical (column, row) address the display sent, ignoring
+///   rotation. Most tests check this, sized to the display's logical size.
+/// - `gram`: in physical display memory, after applying MADCTL (0x36) the
+///   way the ILI9486 does: MV swaps the column and row addresses, then MX
+///   mirrors the column and MY mirrors the row. (For the four MADCTL values
+///   the driver uses, the other reading of the datasheet, mirroring before
+///   the swap, gives the same result.)
 #[derive(Default)]
 struct Panel {
     width: usize,
     height: usize,
-    /// RGB666 bytes per pixel, as sent
+    /// RGB666 bytes per pixel, as sent, at the logical address
     pixels: Vec<[u8; 3]>,
     cmd: u8,
     params: Vec<u8>,
@@ -35,6 +48,14 @@ struct Panel {
     overflow: usize,
     /// Byte count of each memory write data transfer
     pixel_transfers: Vec<usize>,
+    /// Last Memory Access Control (MADCTL) value
+    madctl: u8,
+    /// Physical display memory, GRAM_W x GRAM_H, row by row
+    gram: Vec<[u8; 3]>,
+    /// How many times each GRAM pixel was written
+    gram_writes: Vec<u32>,
+    /// Every command with its parameters, in order (pixel data not included)
+    commands: Vec<(u8, Vec<u8>)>,
 }
 
 /// Shared handle so the test can inspect the panel after the display has
@@ -48,14 +69,31 @@ impl MockSpi {
             width,
             height,
             pixels: vec![[0; 3]; width * height],
+            gram: vec![[0; 3]; GRAM_W * GRAM_H],
+            gram_writes: vec![0; GRAM_W * GRAM_H],
             ..Default::default()
         })))
     }
 }
 
+/// Where logical address (x, y) lands in GRAM for a MADCTL value, as (column, row).
+fn gram_position(madctl: u8, x: usize, y: usize) -> (usize, usize) {
+    use super::enums::madctl::{MV, MX, MY};
+    let (mut col, mut row) = if madctl & MV != 0 { (y, x) } else { (x, y) };
+    assert!(col < GRAM_W && row < GRAM_H, "address ({x}, {y}) is outside GRAM with MADCTL {madctl:#04x}");
+    if madctl & MX != 0 {
+        col = GRAM_W - 1 - col;
+    }
+    if madctl & MY != 0 {
+        row = GRAM_H - 1 - row;
+    }
+    (col, row)
+}
+
 const CASET: u8 = Command::ColumnAddressSet as u8;
 const RASET: u8 = Command::RowAddressSet as u8;
 const RAMWR: u8 = Command::MemoryWrite as u8;
+const MADCTL: u8 = Command::MemoryAccessControl as u8;
 
 impl TftSpi for MockSpi {
     fn reset_pin(&mut self) {}
@@ -69,6 +107,7 @@ impl TftSpi for MockSpi {
         let mut p = self.0.borrow_mut();
         p.cmd = cmd as u8;
         p.params.clear();
+        p.commands.push((cmd as u8, Vec::new()));
         if p.cmd == RAMWR {
             p.cursor = (p.window.0, p.window.2);
         }
@@ -82,7 +121,13 @@ impl TftSpi for MockSpi {
     fn write_data(&mut self, data: &[u8]) -> Result<usize> {
         let mut p = self.0.borrow_mut();
         let be16 = |b: &[u8]| usize::from(u16::from_be_bytes([b[0], b[1]]));
+        if p.cmd != RAMWR {
+            if let Some((_, params)) = p.commands.last_mut() {
+                params.extend_from_slice(data);
+            }
+        }
         match p.cmd {
+            MADCTL => p.madctl = data[0],
             CASET | RASET => {
                 p.params.extend_from_slice(data);
                 if p.params.len() == 4 {
@@ -108,6 +153,9 @@ impl TftSpi for MockSpi {
                     let i = y * p.width + x;
                     p.pixels[i] = [px[0], px[1], px[2]];
                     p.pixels_written += 1;
+                    let (col, row) = gram_position(p.madctl, x, y);
+                    p.gram[row * GRAM_W + col] = [px[0], px[1], px[2]];
+                    p.gram_writes[row * GRAM_W + col] += 1;
                     p.cursor = if x == p.window.1 { (p.window.0, y + 1) } else { (x + 1, y) };
                 }
             }
@@ -426,4 +474,205 @@ fn text_width() {
     assert_eq!(Display::text_width("abc", 2), 36);
     assert_eq!(Display::text_width("abc", 0), 18, "size 0 counts as 1");
     assert_eq!(Display::text_width("ab\nlonger\nc", 1), 36, "longest line");
+}
+
+// ---- rotations ----
+
+const ROTATIONS: [Rotate; 4] = [Rotate::Degrees0, Rotate::Degrees90, Rotate::Degrees180, Rotate::Degrees270];
+
+/// A display on a mock panel sized for `rotation`'s logical size.
+fn rotated(rotation: Rotate) -> (TftDisplay<MockSpi>, MockSpi) {
+    let (w, h) = match rotation {
+        Rotate::Degrees0 | Rotate::Degrees180 => (320, 480),
+        Rotate::Degrees90 | Rotate::Degrees270 => (480, 320),
+    };
+    let spi = MockSpi::new(w, h);
+    let mut display = TftDisplay::new(spi.clone());
+    display.set_rotation(rotation).unwrap();
+    (display, spi)
+}
+
+/// Where a pixel of `color` ended up in GRAM. Panics unless exactly one did.
+fn find_in_gram(spi: &MockSpi, color: Color) -> (i32, i32) {
+    let target = color.to_rgb666_bytes();
+    let p = spi.0.borrow();
+    let found: Vec<usize> = (0..p.gram.len()).filter(|&i| p.gram[i] == target).collect();
+    assert_eq!(found.len(), 1, "expected one {color} pixel in GRAM");
+    ((found[0] % GRAM_W) as i32, (found[0] / GRAM_W) as i32)
+}
+
+/// How a rotation lays the logical screen onto GRAM: where logical (0, 0)
+/// lands, and the GRAM step for +1 in logical x and in logical y.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Orientation {
+    origin: (i32, i32),
+    x_step: (i32, i32),
+    y_step: (i32, i32),
+}
+
+fn orientation(rotation: Rotate) -> Orientation {
+    let (mut display, spi) = rotated(rotation);
+    display.draw_pixel(0, 0, Color::RED).unwrap();
+    display.draw_pixel(1, 0, Color::GREEN).unwrap();
+    display.draw_pixel(0, 1, Color::BLUE).unwrap();
+    let origin = find_in_gram(&spi, Color::RED);
+    let (gx, gy) = find_in_gram(&spi, Color::GREEN);
+    let (bx, by) = find_in_gram(&spi, Color::BLUE);
+    Orientation {
+        origin,
+        x_step: (gx - origin.0, gy - origin.1),
+        y_step: (bx - origin.0, by - origin.1),
+    }
+}
+
+/// Quarter turn of a GRAM step vector: (dx, dy) -> (-dy, dx).
+fn quarter_turn((dx, dy): (i32, i32)) -> (i32, i32) {
+    (-dy, dx)
+}
+
+/// The MADCTL values were checked on the actual panel with tft-spi-demo's
+/// rotation test (green block in the bottom-left corner in every rotation).
+/// This pins them so a refactor can't silently change the orientation.
+#[test]
+fn rotation_madctl_values_match_hardware() {
+    for (rotation, expected) in [
+        (Rotate::Degrees0, 0x88),
+        (Rotate::Degrees90, 0x28),
+        (Rotate::Degrees180, 0x48),
+        (Rotate::Degrees270, 0xE8),
+    ] {
+        let (_display, spi) = rotated(rotation);
+        let p = spi.0.borrow();
+        assert_eq!(p.commands.last(), Some(&(MADCTL, vec![expected])), "{rotation:?}");
+        assert!(p.pixel_transfers.is_empty(), "{rotation:?}: set_rotation sent pixels");
+    }
+}
+
+#[test]
+fn rotation_dimensions_and_degrees() {
+    for (rotation, size, degrees) in [
+        (Rotate::Degrees0, (320, 480), 0),
+        (Rotate::Degrees90, (480, 320), 90),
+        (Rotate::Degrees180, (320, 480), 180),
+        (Rotate::Degrees270, (480, 320), 270),
+    ] {
+        let (display, _spi) = rotated(rotation);
+        assert_eq!((display.width(), display.height()), size, "{rotation:?}");
+        assert_eq!(display.rotation(), rotation);
+        assert_eq!(rotation.degrees(), degrees);
+        assert_eq!(Rotate::from_degrees(degrees), Some(rotation));
+    }
+    assert_eq!(Rotate::from_degrees(45), None);
+}
+
+/// In every rotation the logical screen covers all of GRAM, each pixel once.
+#[test]
+fn rotation_fill_covers_whole_panel_once() {
+    for rotation in ROTATIONS {
+        let (mut display, spi) = rotated(rotation);
+        display.fill_screen(Color::WHITE).unwrap();
+        let p = spi.0.borrow();
+        assert!(p.gram_writes.iter().all(|&n| n == 1), "{rotation:?}");
+    }
+}
+
+/// The four rotations are quarter turns of each other, all in the same
+/// direction, with no mirror images. (Which way is clockwise depends on how
+/// the glass is mounted, so only consistency is checked.)
+#[test]
+fn rotations_are_consistent_quarter_turns() {
+    let orientations = ROTATIONS.map(orientation);
+    let corners = [(0, 0), (GRAM_W as i32 - 1, 0), (0, GRAM_H as i32 - 1), (GRAM_W as i32 - 1, GRAM_H as i32 - 1)];
+    // Cross product of the x and y steps: +1 or -1 depending on handedness
+    let handedness = |o: &Orientation| o.x_step.0 * o.y_step.1 - o.x_step.1 * o.y_step.0;
+
+    for (rotation, o) in ROTATIONS.iter().zip(&orientations) {
+        assert!(corners.contains(&o.origin), "{rotation:?}: logical (0, 0) at {:?}, not a corner", o.origin);
+        assert_eq!(o.x_step.0.abs() + o.x_step.1.abs(), 1, "{rotation:?}: x step {:?}", o.x_step);
+        assert_eq!(o.y_step.0.abs() + o.y_step.1.abs(), 1, "{rotation:?}: y step {:?}", o.y_step);
+        assert_eq!(handedness(o), handedness(&orientations[0]), "{rotation:?} is mirrored relative to Degrees0");
+    }
+
+    // Each step to the next rotation turns the axes the same way
+    let turn = |v: (i32, i32), clockwise: bool| {
+        if clockwise {
+            quarter_turn(v)
+        } else {
+            quarter_turn(quarter_turn(quarter_turn(v)))
+        }
+    };
+    let clockwise = orientations[1].x_step == quarter_turn(orientations[0].x_step);
+    for k in 0..4 {
+        let (from, to) = (&orientations[k], &orientations[(k + 1) % 4]);
+        assert_eq!(to.x_step, turn(from.x_step, clockwise), "{:?} -> {:?}", ROTATIONS[k], ROTATIONS[(k + 1) % 4]);
+        assert_eq!(to.y_step, turn(from.y_step, clockwise), "{:?} -> {:?}", ROTATIONS[k], ROTATIONS[(k + 1) % 4]);
+    }
+
+    // The origins visit all four corners, and half turns swap opposite corners
+    let mut origins: Vec<_> = orientations.iter().map(|o| o.origin).collect();
+    let opposite = |(c, r): (i32, i32)| (GRAM_W as i32 - 1 - c, GRAM_H as i32 - 1 - r);
+    assert_eq!(orientations[2].origin, opposite(orientations[0].origin));
+    assert_eq!(orientations[3].origin, opposite(orientations[1].origin));
+    origins.sort();
+    origins.dedup();
+    assert_eq!(origins.len(), 4, "logical (0, 0) should be a different corner in each rotation");
+}
+
+/// Something drawn in Degrees180 is the Degrees0 drawing turned upside down
+/// (and the same for Degrees270 vs Degrees90).
+#[test]
+fn half_turn_rotations_draw_upside_down() {
+    let draw = |rotation: Rotate| {
+        let (mut display, spi) = rotated(rotation);
+        display.draw_text(4, 6, "Fg", Color::WHITE, Color::BLUE, 3).unwrap();
+        display.fill_round_rectangle(30, 70, 50, 25, 8, Color::RED).unwrap();
+        display.draw_line(0, 0, 100, 40, Color::GREEN).unwrap();
+        let gram = spi.0.borrow().gram.clone();
+        gram
+    };
+    let upside_down = |gram: &[[u8; 3]]| -> Vec<[u8; 3]> {
+        (0..GRAM_W * GRAM_H)
+            .map(|i| gram[GRAM_W * GRAM_H - 1 - i])
+            .collect()
+    };
+
+    for (a, b) in [(Rotate::Degrees0, Rotate::Degrees180), (Rotate::Degrees90, Rotate::Degrees270)] {
+        let (gram_a, gram_b) = (draw(a), draw(b));
+        assert!(gram_a.iter().any(|&px| px != BLACK));
+        assert!(upside_down(&gram_a) == gram_b, "{b:?} is not {a:?} turned upside down");
+    }
+}
+
+#[test]
+fn rotation_address_bounds() {
+    for rotation in ROTATIONS {
+        let (mut display, spi) = rotated(rotation);
+        let (w, h) = (display.width(), display.height());
+        // Opposite corners are drawable
+        display.set_addr_window(0, 0, w - 1, h - 1).unwrap();
+        // One past the edge is rejected before anything is sent
+        let sent_before = spi.0.borrow().commands.len();
+        assert!(matches!(display.set_addr_window(0, 0, w, h - 1), Err(Error::Size { .. })), "{rotation:?}");
+        assert!(matches!(display.set_addr_window(0, 0, w - 1, h), Err(Error::Size { .. })), "{rotation:?}");
+        assert_eq!(spi.0.borrow().commands.len(), sent_before, "{rotation:?}");
+    }
+}
+
+/// Changing rotation only affects what's drawn afterwards.
+#[test]
+fn rotation_change_keeps_existing_pixels() {
+    let spi = MockSpi::new(480, 480); // big enough for both logical sizes
+    let mut display = TftDisplay::new(spi.clone());
+    display.set_rotation(Rotate::Degrees0).unwrap();
+    display.fill_rectangle(0, 0, 10, 10, Color::RED).unwrap();
+    let before = spi.0.borrow().gram.clone();
+
+    display.set_rotation(Rotate::Degrees90).unwrap();
+    assert!(spi.0.borrow().gram == before, "set_rotation changed GRAM");
+    display.fill_rectangle(0, 0, 10, 10, Color::BLUE).unwrap();
+
+    let p = spi.0.borrow();
+    let count = |c: Color| p.gram.iter().filter(|&&px| px == c.to_rgb666_bytes()).count();
+    assert_eq!(count(Color::RED), 100, "first square still there");
+    assert_eq!(count(Color::BLUE), 100, "second square in a different corner");
 }
