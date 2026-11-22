@@ -60,25 +60,14 @@ impl TftTouch {
             return Ok(None);
         }
 
-        let mut xs = Vec::with_capacity(samples);
-        let mut ys = Vec::with_capacity(samples);
+        let mut readings = Vec::with_capacity(samples);
         for _ in 0..samples.max(1) {
             match self.read_raw()? {
-                Some((x, y)) if (1..4095).contains(&x) && (1..4095).contains(&y) => {
-                    xs.push(x);
-                    ys.push(y);
-                }
-                Some(_) => {}
+                Some(reading) => readings.push(reading),
                 None => return Ok(None),
             }
         }
-        if xs.is_empty() {
-            return Ok(None);
-        }
-
-        xs.sort_unstable();
-        ys.sort_unstable();
-        Ok(Some((xs[xs.len() / 2], ys[ys.len() / 2])))
+        Ok(super::filter::median_reading(&readings))
     }
 
     /// Blocks until the panel is touched and returns a filtered raw reading.

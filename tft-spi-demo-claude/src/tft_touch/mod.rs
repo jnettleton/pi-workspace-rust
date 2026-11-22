@@ -1,4 +1,5 @@
 pub mod calibration;
+pub mod filter;
 #[cfg(target_os = "linux")]
 pub mod tft_touch;
 
