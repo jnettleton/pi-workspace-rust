@@ -42,9 +42,9 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let gamma = match env::var("TFT_GAMMA") {
         Ok(name) => Gamma::from_name(&name).unwrap_or_else(|| {
             eprintln!("ignoring TFT_GAMMA={name:?}: use full, analog or none");
-            Gamma::Full
+            Gamma::PanelDefault
         }),
-        Err(_) => Gamma::Full,
+        Err(_) => Gamma::PanelDefault,
     };
     println!("gamma: {gamma:?} (set TFT_GAMMA=full, analog or none to change)");
     display.set_gamma(gamma);

@@ -646,17 +646,14 @@ fn shapes_at_extreme_coordinates() {
 
 // ---- initialization ----
 
-/// The init sequence from tft-spi-demo, which works on the actual panel.
-/// Pinned so changes to it are deliberate.
+/// The init sequence from tft-spi-demo, minus its gamma tables (the panel's
+/// defaults looked best on the board). Pinned so changes are deliberate.
 #[test]
 fn initialize_sends_known_working_sequence() {
     let spi = MockSpi::new(320, 480);
     let mut display = TftDisplay::new(spi.clone());
     display.initialize().unwrap();
 
-    let gamma_negative = vec![
-        0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
-    ];
     let expected: Vec<(u8, Vec<u8>)> = vec![
         (0x01, vec![]),                 // soft reset
         (0xB1, vec![0x10, 0x11]),       // frame rate, normal mode: 30 Hz, 17 clocks/line
@@ -666,12 +663,6 @@ fn initialize_sends_known_working_sequence() {
         (0xC5, vec![0x00, 0x00, 0x00, 0x00]), // VCOM control
         (0x3A, vec![0x66]),             // pixel format: 18 bits/pixel
         (0xB0, vec![0x00]),             // interface mode control
-        (
-            0xE0, // positive gamma
-            vec![0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D, 0x00],
-        ),
-        (0xE1, gamma_negative.clone()), // negative gamma
-        (0xE2, gamma_negative),         // digital gamma
         (0x11, vec![]),                 // sleep out
         (0x29, vec![]),                 // display on
         (0x36, vec![0x88]),             // MADCTL for the default rotation (Degrees0)

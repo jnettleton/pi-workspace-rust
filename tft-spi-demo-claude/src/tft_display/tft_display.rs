@@ -33,14 +33,14 @@ pub struct TftDisplay<S: TftSpi> {
 /// Which gamma tables `initialize` sends. With the 8-bit bus most of these
 /// commands never reached the panel intact; with the 16-bit bus they do, and
 /// photos came out with strong, banded color shifts (grey as cyan, orange as
-/// yellow-green), so this is selectable while finding the right setup.
+/// yellow-green). The panel's own defaults looked best on the board.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Gamma {
     /// Positive, negative and digital gamma (tft-spi-demo's sequence)
     Full,
     /// Positive and negative gamma only, no digital gamma table
     Analog,
-    /// None: the panel's own defaults after reset
+    /// None: the panel's own defaults after reset (the default)
     PanelDefault,
 }
 
@@ -63,7 +63,7 @@ impl<S: TftSpi> TftDisplay<S> {
             width: NATIVE_WIDTH,
             height: NATIVE_HEIGHT,
             rotation: Rotate::Degrees0,
-            gamma: Gamma::Full,
+            gamma: Gamma::PanelDefault,
         }
     }
 
