@@ -84,7 +84,25 @@ directory.
 
 ## Tests
 
-`cargo test` runs on any platform, including Windows. The Pi-only parts
-(`rppal`, the SPI and touch drivers, the app) are left out of non-Linux
-builds, and the display is tested against a mock ILI9486 that paints what it
-receives into a framebuffer.
+`cargo test` runs on any platform, including Windows (70 tests, a few
+seconds). The Pi-only parts (`rppal`, the SPI and touch drivers, the app's
+main loop) are left out of non-Linux builds.
+
+Display tests use a mock ILI9486 (`src/tft_display/mock.rs`) that decodes the
+commands the driver sends and paints the pixels into a framebuffer. It also
+models the panel's physical memory, applying the MADCTL rotation bits, and
+logs every command, so tests can check exactly what would be on screen.
+
+What's covered:
+
+| Area | Tests |
+|---|---|
+| `fill_rectangle`, `draw_text`, `draw_image` | Every pixel on screen, clipping at all edges, nothing sent when off screen, pixel-aligned 4095-byte transfers |
+| Lines, circles, rectangles, rounded rectangles | Pixel-for-pixel against plain per-pixel versions of the algorithms; clipped at every edge; no overflow at extreme coordinates |
+| Rotations | MADCTL values verified on the hardware are pinned; each rotation covers the whole panel once; the four are consistent quarter turns with no mirroring |
+| Initialization | The known-working command sequence, 18-bit pixel format, reset and ILI9486 timing |
+| Touch calibration | The fitting math; the calibration screens with scripted touches (target positions, retries, saving/loading the file, per rotation) |
+| Pictures | JPEG/PNG loading, EXIF orientation, bad files, Fit/Fill scaling and cropping, the viewer's centering and borders |
+
+Not covered (needs the hardware): the `rppal` SPI/GPIO calls, reading the
+XPT2046 touch controller, and the demo's touch-drawing loop.
