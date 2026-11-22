@@ -32,20 +32,6 @@ pub fn glyph(c: char) -> &'static [u8] {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn glyph_lookup_spans_both_tables() {
-        assert_eq!(glyph(' '), &[0x00, 0x00, 0x00, 0x00, 0x00]);
-        assert_eq!(glyph('R'), &[0x7F, 0x09, 0x19, 0x29, 0x46]);
-        assert_eq!(glyph('S'), &[0x26, 0x49, 0x49, 0x49, 0x32]);
-        assert_eq!(glyph('~'), &[0x02, 0x01, 0x02, 0x04, 0x02]);
-        assert_eq!(glyph('é'), glyph('?'));
-        assert_eq!(glyph('\n'), glyph('?'));
-    }
-}
 
 pub const FONT: &[u8; 255] = &[
     0x00, 0x00, 0x00, 0x00, 0x00,
@@ -146,3 +132,18 @@ pub const FONT2: &[u8; 220] = &[
     0x00, 0x41, 0x36, 0x08, 0x00,
     0x02, 0x01, 0x02, 0x04, 0x02
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glyph_lookup_spans_both_tables() {
+        assert_eq!(glyph(' '), &[0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(glyph('R'), &[0x7F, 0x09, 0x19, 0x29, 0x46]);
+        assert_eq!(glyph('S'), &[0x26, 0x49, 0x49, 0x49, 0x32]);
+        assert_eq!(glyph('~'), &[0x02, 0x01, 0x02, 0x04, 0x02]);
+        assert_eq!(glyph('é'), glyph('?'));
+        assert_eq!(glyph('\n'), glyph('?'));
+    }
+}

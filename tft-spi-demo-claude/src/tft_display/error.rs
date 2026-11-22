@@ -1,10 +1,9 @@
 use std::{error, fmt::Display};
 
-use rppal::spi;
-
 #[derive(Debug)]
 pub enum Error {
-    Spi(spi::Error),
+    /// Error from the SPI/GPIO layer (an `rppal` error on the Pi)
+    Spi(Box<dyn error::Error + Send + Sync>),
     Size { given: u16, max: u16 },
     /// Pixel buffer length doesn't match width * height * 3
     ImageSize { given: usize, expected: usize },
@@ -22,10 +21,18 @@ impl Display for Error {
     }
 }
 
-impl error::Error for Error {}
+impl error::Error for Error {
+    fn source(&self) -> Option<&(dyn error::Error + 'static)> {
+        match self {
+            Self::Spi(err) => Some(err.as_ref()),
+            _ => None,
+        }
+    }
+}
 
-impl From<spi::Error> for Error {
-    fn from(err: spi::Error) -> Self {
-        Error::Spi(err)
+#[cfg(target_os = "linux")]
+impl From<rppal::spi::Error> for Error {
+    fn from(err: rppal::spi::Error) -> Self {
+        Error::Spi(Box::new(err))
     }
 }

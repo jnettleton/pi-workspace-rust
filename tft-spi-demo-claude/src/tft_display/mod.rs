@@ -4,3 +4,5 @@ pub mod error;
 pub mod font;
 pub mod shapes;
 pub mod tft_display;
+#[cfg(test)]
+mod tests;
