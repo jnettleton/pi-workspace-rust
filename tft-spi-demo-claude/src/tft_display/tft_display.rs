@@ -13,13 +13,9 @@ pub type Result<T> = result::Result<T, Error>;
 /// Bytes per pixel in 18-bit mode
 const BYTES_PER_PIXEL: usize = 3;
 
-/// spidev's default `bufsiz` is 4096 bytes per transfer. Rounded down to a
-/// multiple of 12 bytes: a whole number of pixels (so a pixel is never split
-/// across two transfers) and of 4 bytes. tft-spi-demo sends one row per
-/// transfer (960 or 1440 bytes, both multiples of 12) and works. The board
-/// showed bars with 4095-byte transfers; the suspected cause is the Pi's SPI
-/// DMA, which works in 32-bit words.
-const MAX_BUFFER_SIZE: usize = 4096 / 12 * 12;
+// Pixels are sent one row per SPI transfer (at most 480 * 3 = 1440 bytes),
+// the same pattern as tft-spi-demo, which works on this board. Bigger
+// transfers (4095 bytes, then 4092) showed bars and incomplete fills.
 
 /// Native (portrait) panel size of the ILI9486
 const NATIVE_WIDTH: u16 = 320;
@@ -152,21 +148,10 @@ impl<S: TftSpi> TftDisplay<S> {
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
         self.tft_spi.write_command(Command::MemoryWrite)?;
 
-        // One buffer of the color (no bigger than needed: shapes and text
-        // send lots of small fills), written as many times as needed.
-        let mut remaining = w as usize * h as usize * BYTES_PER_PIXEL;
-        let pixel = color.to_rgb666_bytes();
-        let buffer: Vec<u8> = pixel
-            .iter()
-            .copied()
-            .cycle()
-            .take(remaining.min(MAX_BUFFER_SIZE))
-            .collect();
-
-        while remaining > 0 {
-            let n = remaining.min(MAX_BUFFER_SIZE);
-            self.tft_spi.write_data(&buffer[..n])?;
-            remaining -= n;
+        // One row of the color, sent once per row
+        let row = color.to_rgb666_bytes().repeat(usize::from(w));
+        for _ in 0..h {
+            self.tft_spi.write_data(&row)?;
         }
 
         Ok(())
@@ -235,21 +220,16 @@ impl<S: TftSpi> TftDisplay<S> {
         let visible_bytes = usize::from(x1 - x0) * 3;
         let row_bytes = usize::from(width) * 3;
 
-        let mut buffer = Vec::with_capacity(MAX_BUFFER_SIZE);
+        // One transfer per visible row
+        let mut buffer = Vec::with_capacity(visible_bytes);
         // `chunks_exact` rather than `as_chunks` (Rust 1.88+) to build on older Pi toolchains
         #[allow(clippy::chunks_exact_to_as_chunks)]
         for row in 0..usize::from(y1 - y0) {
             let start = (src_y + row) * row_bytes + src_x * 3;
+            buffer.clear();
             for pixel in rgb[start..start + visible_bytes].chunks_exact(3) {
                 buffer.extend_from_slice(&Color::rgb(pixel[0], pixel[1], pixel[2]).to_rgb666_bytes());
-                // MAX_BUFFER_SIZE is a whole number of pixels, so this lands exactly
-                if buffer.len() == MAX_BUFFER_SIZE {
-                    self.tft_spi.write_data(&buffer)?;
-                    buffer.clear();
-                }
             }
-        }
-        if !buffer.is_empty() {
             self.tft_spi.write_data(&buffer)?;
         }
 
@@ -358,8 +338,8 @@ impl<S: TftSpi> TftDisplay<S> {
 
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
         self.tft_spi.write_command(Command::MemoryWrite)?;
-        for chunk in buffer.chunks(MAX_BUFFER_SIZE) {
-            self.tft_spi.write_data(chunk)?;
+        for row in buffer.chunks(usize::from(w) * BYTES_PER_PIXEL) {
+            self.tft_spi.write_data(row)?;
         }
 
         Ok(())
@@ -374,15 +354,13 @@ impl<S: TftSpi> TftDisplay<S> {
             }
         }
 
-        let [x0h, x0l] = x0.to_be_bytes();
-        let [x1h, x1l] = x1.to_be_bytes();
-        let [y0h, y0l] = y0.to_be_bytes();
-        let [y1h, y1l] = y1.to_be_bytes();
-
-        self.tft_spi
-            .write_reg(Command::ColumnAddressSet, &[x0h, x0l, x1h, x1l])?;
-        self.tft_spi
-            .write_reg(Command::RowAddressSet, &[y0h, y0l, y1h, y1l])?;
+        // Each coordinate as its own 2-byte transfer, as tft-spi-demo does
+        self.tft_spi.write_command(Command::ColumnAddressSet)?;
+        self.tft_spi.write_data(&x0.to_be_bytes())?;
+        self.tft_spi.write_data(&x1.to_be_bytes())?;
+        self.tft_spi.write_command(Command::RowAddressSet)?;
+        self.tft_spi.write_data(&y0.to_be_bytes())?;
+        self.tft_spi.write_data(&y1.to_be_bytes())?;
 
         Ok(())
     }
