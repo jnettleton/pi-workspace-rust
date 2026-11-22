@@ -2,6 +2,7 @@ use crate::tft_display::{
     color::Color,
     enums::{madctl, Command, Rotate},
     error::Error,
+    font,
 };
 use crate::tft_spi::TftSpi;
 
@@ -156,6 +157,82 @@ impl<S: TftSpi> TftDisplay<S> {
             let n = remaining.min(MAX_BUFFER_SIZE);
             self.tft_spi.write_data(&buffer[..n])?;
             remaining -= n;
+        }
+
+        Ok(())
+    }
+
+    /// Draws `text` with its top-left corner at (`x`, `y`), scaled by `size`
+    /// (1 = 6x8 pixels per character, 2 = 12x16, ...). `'\n'` starts a new line
+    /// at `x`. Text running off the screen is clipped, not wrapped.
+    pub fn draw_text(
+        &mut self,
+        x: u16,
+        y: u16,
+        text: &str,
+        fg: Color,
+        bg: Color,
+        size: u8,
+    ) -> Result<()> {
+        let size = u16::from(size.max(1));
+        let (mut cursor_x, mut cursor_y) = (x, y);
+
+        for c in text.chars() {
+            if c == '\n' {
+                cursor_x = x;
+                cursor_y = cursor_y.saturating_add(font::GLYPH_HEIGHT * size);
+                continue;
+            }
+            self.draw_char(cursor_x, cursor_y, c, fg, bg, size as u8)?;
+            cursor_x = cursor_x.saturating_add(font::CHAR_ADVANCE * size);
+        }
+
+        Ok(())
+    }
+
+    /// Width in pixels of the longest line of `text` at `size`.
+    pub fn text_width(text: &str, size: u8) -> u16 {
+        let longest = text.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+        (longest as u16).saturating_mul(font::CHAR_ADVANCE * u16::from(size.max(1)))
+    }
+
+    /// Draws one character cell (glyph plus 1 column of spacing, in `bg`),
+    /// clipped to the screen.
+    pub fn draw_char(
+        &mut self,
+        x: u16,
+        y: u16,
+        c: char,
+        fg: Color,
+        bg: Color,
+        size: u8,
+    ) -> Result<()> {
+        if x >= self.width || y >= self.height {
+            return Ok(());
+        }
+
+        let size = u16::from(size.max(1));
+        let w = (font::CHAR_ADVANCE * size).min(self.width - x);
+        let h = (font::GLYPH_HEIGHT * size).min(self.height - y);
+
+        let glyph = font::glyph(c);
+        let fg = fg.to_rgb666_bytes();
+        let bg = bg.to_rgb666_bytes();
+
+        let mut buffer = Vec::with_capacity(w as usize * h as usize * BYTES_PER_PIXEL);
+        for py in 0..h {
+            let row = py / size;
+            for px in 0..w {
+                let col = (px / size) as usize;
+                let on = glyph.get(col).is_some_and(|bits| (bits >> row) & 1 == 1);
+                buffer.extend_from_slice(if on { &fg } else { &bg });
+            }
+        }
+
+        self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
+        self.tft_spi.write_command(Command::MemoryWrite)?;
+        for chunk in buffer.chunks(MAX_BUFFER_SIZE) {
+            self.tft_spi.write_data(chunk)?;
         }
 
         Ok(())

@@ -30,15 +30,42 @@ fn main() -> Result<(), Box<dyn Error>> {
         thread::sleep(Duration::from_secs(1));
     }
 
-    // Landscape with a row of four buttons along the bottom.
+    // Landscape with a title and a row of four labeled buttons along the bottom.
     display.set_rotation(Rotate::Degrees90)?;
     display.fill_screen(Color::BLACK)?;
-    let button_y = display.height() - 40;
-    for (i, color) in [Color::RED, Color::YELLOW, Color::GREY, Color::MAGENTA]
-        .into_iter()
-        .enumerate()
+    display.draw_text(10, 10, "Hello, World!", Color::WHITE, Color::BLUE, 4)?;
+    display.draw_text(
+        10,
+        60,
+        "5x8 font, size 2\nsecond line, size 2",
+        Color::GREEN,
+        Color::BLACK,
+        2,
+    )?;
+    display.draw_text(10, 110, "size 1: !\"#$%&'()*+,-./0123456789:;<=>?@", Color::WHITE, Color::BLACK, 1)?;
+    display.draw_text(10, 120, "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~", Color::WHITE, Color::BLACK, 1)?;
+
+    const BUTTON_W: u16 = 120;
+    const BUTTON_H: u16 = 40;
+    const LABEL_SIZE: u8 = 2;
+    let button_y = display.height() - BUTTON_H;
+    for (i, (label, fg, bg)) in [
+        ("Executed", Color::WHITE, Color::RED),
+        ("Scheduled", Color::BLACK, Color::YELLOW),
+        ("Routines", Color::WHITE, Color::GREY),
+        ("Scenes", Color::BLACK, Color::MAGENTA),
+    ]
+    .into_iter()
+    .enumerate()
     {
-        display.fill_rectangle(i as u16 * 120, button_y, 120, 40, color)?;
+        let button_x = i as u16 * BUTTON_W;
+        display.fill_rectangle(button_x, button_y, BUTTON_W, BUTTON_H, bg)?;
+
+        // Center the label in the button
+        let text_w = TftDisplay::<TftSpiImpl>::text_width(label, LABEL_SIZE);
+        let label_x = button_x + BUTTON_W.saturating_sub(text_w) / 2;
+        let label_y = button_y + (BUTTON_H - 8 * LABEL_SIZE as u16) / 2;
+        display.draw_text(label_x, label_y, label, fg, bg, LABEL_SIZE)?;
     }
 
     // Quick touch test: print raw readings for ~10 seconds.

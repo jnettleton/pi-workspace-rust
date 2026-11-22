@@ -1,5 +1,51 @@
-//! 5x7 ASCII font (0x20..=0x7E), 5 column bytes per glyph, not used yet.
-#![allow(dead_code)]
+//! 5x8 ASCII font (0x20..=0x7E), 5 column bytes per glyph.
+//!
+//! Each byte is one column, bit 0 = top row, bit 7 = bottom row (descenders).
+//! `FONT` holds ' '..='R', `FONT2` holds 'S'..='~'; use [`glyph`] to look up.
+
+/// Glyph width in pixels
+pub const GLYPH_WIDTH: u16 = 5;
+/// Glyph height in pixels
+pub const GLYPH_HEIGHT: u16 = 8;
+/// Horizontal advance per character (glyph + 1 column spacing)
+pub const CHAR_ADVANCE: u16 = GLYPH_WIDTH + 1;
+
+const FIRST_CHAR: u8 = b' ';
+const FONT2_FIRST_CHAR: u8 = b'S';
+const LAST_CHAR: u8 = b'~';
+
+/// Column bytes for `c`. Characters outside printable ASCII render as '?'.
+pub fn glyph(c: char) -> &'static [u8] {
+    let code = if c.is_ascii() && (FIRST_CHAR..=LAST_CHAR).contains(&(c as u8)) {
+        c as u8
+    } else {
+        b'?'
+    };
+
+    let width = GLYPH_WIDTH as usize;
+    if code < FONT2_FIRST_CHAR {
+        let i = (code - FIRST_CHAR) as usize * width;
+        &FONT[i..i + width]
+    } else {
+        let i = (code - FONT2_FIRST_CHAR) as usize * width;
+        &FONT2[i..i + width]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glyph_lookup_spans_both_tables() {
+        assert_eq!(glyph(' '), &[0x00, 0x00, 0x00, 0x00, 0x00]);
+        assert_eq!(glyph('R'), &[0x7F, 0x09, 0x19, 0x29, 0x46]);
+        assert_eq!(glyph('S'), &[0x26, 0x49, 0x49, 0x49, 0x32]);
+        assert_eq!(glyph('~'), &[0x02, 0x01, 0x02, 0x04, 0x02]);
+        assert_eq!(glyph('é'), glyph('?'));
+        assert_eq!(glyph('\n'), glyph('?'));
+    }
+}
 
 pub const FONT: &[u8; 255] = &[
     0x00, 0x00, 0x00, 0x00, 0x00,
