@@ -47,3 +47,24 @@ pub enum Rotate {
     /// Landscape (flipped), 480 x 320
     Degrees270,
 }
+
+impl Rotate {
+    pub fn degrees(self) -> u16 {
+        match self {
+            Rotate::Degrees0 => 0,
+            Rotate::Degrees90 => 90,
+            Rotate::Degrees180 => 180,
+            Rotate::Degrees270 => 270,
+        }
+    }
+
+    pub fn from_degrees(degrees: u16) -> Option<Self> {
+        match degrees {
+            0 => Some(Rotate::Degrees0),
+            90 => Some(Rotate::Degrees90),
+            180 => Some(Rotate::Degrees180),
+            270 => Some(Rotate::Degrees270),
+            _ => None,
+        }
+    }
+}

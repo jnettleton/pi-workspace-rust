@@ -1,3 +1,8 @@
+use std::{
+    thread,
+    time::{Duration, Instant},
+};
+
 use rppal::{
     gpio::{Gpio, InputPin},
     spi::{self, Bus, Mode, SlaveSelect, Spi},
@@ -23,6 +28,9 @@ impl TftTouch {
     const READ_X: u8 = 0xD0;
     const READ_Y: u8 = 0x90;
 
+    /// Readings per filtered sample (median)
+    pub const FILTER_SAMPLES: usize = 15;
+
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         let spi = Spi::new(Bus::Spi0, SlaveSelect::Ss1, Self::SPI_CLOCK_SPEED, Mode::Mode0)?;
         let irq = Gpio::new()?.get(Self::TP_IRQ)?.into_input_pullup();
@@ -42,6 +50,61 @@ impl TftTouch {
         let x = self.read_channel(Self::READ_X)?;
         let y = self.read_channel(Self::READ_Y)?;
         Ok(Some((x, y)))
+    }
+
+    /// Median of `samples` raw readings, or `None` if the panel isn't touched
+    /// for the whole time. The first reading is thrown away (it's often off
+    /// while the finger is still settling), as are readings stuck at 0 or 4095.
+    pub fn read_filtered(&mut self, samples: usize) -> spi::Result<Option<(u16, u16)>> {
+        if self.read_raw()?.is_none() {
+            return Ok(None);
+        }
+
+        let mut xs = Vec::with_capacity(samples);
+        let mut ys = Vec::with_capacity(samples);
+        for _ in 0..samples.max(1) {
+            match self.read_raw()? {
+                Some((x, y)) if (1..4095).contains(&x) && (1..4095).contains(&y) => {
+                    xs.push(x);
+                    ys.push(y);
+                }
+                Some(_) => {}
+                None => return Ok(None),
+            }
+        }
+        if xs.is_empty() {
+            return Ok(None);
+        }
+
+        xs.sort_unstable();
+        ys.sort_unstable();
+        Ok(Some((xs[xs.len() / 2], ys[ys.len() / 2])))
+    }
+
+    /// Blocks until the panel is touched and returns a filtered raw reading.
+    pub fn wait_for_touch(&mut self) -> spi::Result<(u16, u16)> {
+        loop {
+            if let Some(raw) = self.read_filtered(Self::FILTER_SAMPLES)? {
+                return Ok(raw);
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+    }
+
+    /// Blocks until the panel has been released for at least 100 ms.
+    pub fn wait_for_release(&self) {
+        let mut released_since = None;
+        loop {
+            if self.is_touched() {
+                released_since = None;
+            } else {
+                let since = *released_since.get_or_insert_with(Instant::now);
+                if since.elapsed() >= Duration::from_millis(100) {
+                    return;
+                }
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     fn read_channel(&mut self, cmd: u8) -> spi::Result<u16> {
