@@ -45,12 +45,12 @@ the image on this board. Touch reads release it while they use CE1.
 
 | | |
 |---|---|
-| Display SPI clock | 31.2 MHz requested (above the ILI9486's rated SPI speed but works on this board; drop to 16 MHz if pixels get corrupted). The Pi divides its core clock by an even number and rounds down, so on a Pi 4 (500 MHz core clock) this runs at about 27.8 MHz |
+| Display SPI clock | 16 MHz requested, about 15.6 MHz actual on a Pi 4 (the Pi divides its 500 MHz core clock by an even number and rounds down). `tft-spi-demo`'s 31.2 MHz (about 27.8 MHz actual) is above the ILI9486's rated speed and is the suspected cause of wrong colors and partial fills. Override with `TFT_SPI_HZ`, e.g. `TFT_SPI_HZ=8000000` |
 | Touch SPI clock | 2 MHz (XPT2046 maximum is about 2.5 MHz) |
 | SPI mode | Mode 0 |
 | Pixel format (0x3A) | `0x66`: 18 bits per pixel |
 | Transfers | One row of pixels per SPI transfer (at most 1440 bytes) and each address coordinate as its own 2-byte transfer, the same pattern as `tft-spi-demo`. Bigger pixel transfers (4095, then 4092 bytes) showed bars and incomplete fills on this board |
-| Full-screen update | 480 × 320 × 3 = 460,800 bytes, about 0.13 s at 27.8 MHz |
+| Full-screen update | 480 × 320 × 3 = 460,800 bytes, about 0.24 s at 15.6 MHz |
 | Touch commands | `0xD0` read X, `0x90` read Y (12-bit, differential) |
 
 Rotation is set with MADCTL (0x36), always with the BGR bit (`0x08`):

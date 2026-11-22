@@ -96,9 +96,22 @@ mod rpi {
     }
 
     impl InnerTftSpi {
-        /// Same speed as tft-spi-demo. It's above the ILI9486 datasheet write-cycle
-        /// spec, so drop it (e.g. to 16 MHz) if you see corrupted pixels.
-        const SPI_CLOCK_SPEED: u32 = 31_200_000;
+        /// Default SPI clock. The Pi rounds down to its core clock divided by
+        /// an even number: 16 MHz runs at about 15.6 MHz on a Pi 4, within the
+        /// ILI9486's rated write speed. tft-spi-demo's 31.2 MHz (about 27.8
+        /// MHz actual) is suspected of garbling colors and fills. Override with
+        /// the `TFT_SPI_HZ` environment variable.
+        const SPI_CLOCK_SPEED: u32 = 16_000_000;
+
+        fn clock_speed() -> u32 {
+            match std::env::var("TFT_SPI_HZ") {
+                Ok(value) => value.trim().parse().unwrap_or_else(|_| {
+                    eprintln!("ignoring TFT_SPI_HZ={value:?}: not a number");
+                    Self::SPI_CLOCK_SPEED
+                }),
+                Err(_) => Self::SPI_CLOCK_SPEED,
+            }
+        }
 
         /// Reset
         /// GPIO 25
@@ -164,7 +177,9 @@ mod rpi {
         ///
         /// `Mode::Mode0`
         fn create_spi() -> spi::Result<Spi> {
-            Spi::new(Bus::Spi0, SlaveSelect::Ss0, Self::SPI_CLOCK_SPEED, Mode::Mode0)
+            let speed = Self::clock_speed();
+            println!("display SPI clock: {speed} Hz requested");
+            Spi::new(Bus::Spi0, SlaveSelect::Ss0, speed, Mode::Mode0)
         }
 
         fn reset_pin(&mut self) {
