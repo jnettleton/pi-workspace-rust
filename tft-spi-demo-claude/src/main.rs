@@ -1,12 +1,20 @@
 mod calibrate;
+mod picture;
 pub mod tft_display;
 pub mod tft_spi;
 pub mod tft_touch;
 #[allow(dead_code)]
 mod util;
 
-use std::{env, error::Error, path::Path, thread, time::Duration};
+use std::{
+    env,
+    error::Error,
+    path::Path,
+    thread,
+    time::{Duration, Instant},
+};
 
+use picture::Scale;
 use tft_display::{color::Color, enums::Rotate, tft_display::TftDisplay};
 use tft_spi::TftSpiImpl;
 use tft_touch::tft_touch::TftTouch;
@@ -28,12 +36,24 @@ const BUTTONS: [(&str, Color, Color); 4] = [
     ("Scenes", Color::BLACK, Color::MAGENTA),
 ];
 
+/// Usage:
+///   tft-spi-demo-claude [--calibrate]      demo: shapes, text, touch drawing
+///   tft-spi-demo-claude [--fill] <image>   show a JPEG or PNG and exit
 fn main() -> Result<(), Box<dyn Error>> {
-    let force_calibration = env::args().any(|arg| arg == "--calibrate");
+    let args: Vec<String> = env::args().skip(1).collect();
+    let has_flag = |flag: &str| args.iter().any(|arg| arg == flag);
+    let image_path = args.iter().find(|arg| !arg.starts_with("--"));
 
     // Display on CE0, touch on CE1: separate SPI handles, kernel handles chip select.
     let mut display = TftDisplay::new(TftSpiImpl::new()?);
     display.initialize()?;
+
+    if let Some(path) = image_path {
+        let scale = if has_flag("--fill") { Scale::Fill } else { Scale::Fit };
+        return show_image(&mut display, Path::new(path), scale);
+    }
+
+    let force_calibration = has_flag("--calibrate");
     let mut touch = TftTouch::new()?;
 
     rotation_test(&mut display)?;
@@ -120,6 +140,31 @@ fn shapes_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
     let text_y = display.height() - 20;
     display.draw_text(10, text_y, "lines, circles, rectangles", Color::WHITE, Color::BLACK, 2)?;
     thread::sleep(Duration::from_secs(2));
+    Ok(())
+}
+
+/// Shows a picture centered on the screen, rotating the screen to portrait
+/// for portrait pictures. Fit leaves black borders; Fill crops to cover.
+fn show_image(display: &mut Display, path: &Path, scale: Scale) -> Result<(), Box<dyn Error>> {
+    let start = Instant::now();
+    let image = picture::open(path).map_err(|err| format!("{}: {err}", path.display()))?;
+    println!("{}: {}x{}, decoded in {:?}", path.display(), image.width(), image.height(), start.elapsed());
+
+    let rotation = if picture::is_portrait(&image) { Rotate::Degrees0 } else { Rotate::Degrees90 };
+    display.set_rotation(rotation)?;
+
+    let start = Instant::now();
+    let picture = picture::scale(&image, display.width(), display.height(), scale);
+    println!("scaled to {}x{} ({scale:?}) in {:?}", picture.width, picture.height, start.elapsed());
+
+    let start = Instant::now();
+    if (picture.width, picture.height) != (display.width(), display.height()) {
+        display.fill_screen(Color::BLACK)?;
+    }
+    let x = (i32::from(display.width()) - i32::from(picture.width)) / 2;
+    let y = (i32::from(display.height()) - i32::from(picture.height)) / 2;
+    display.draw_image(x, y, picture.width, picture.height, &picture.rgb)?;
+    println!("drawn in {:?}", start.elapsed());
     Ok(())
 }
 

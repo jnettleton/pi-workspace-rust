@@ -204,22 +204,67 @@ impl<S: TftSpi> TftDisplay<S> {
         shapes::filled_circle(cx, cy, radius, |rect| self.fill_rect_clipped(rect, color))
     }
 
+    /// Draws an image with its top-left corner at (x, y). `rgb` holds
+    /// `width * height` pixels, row by row, 3 bytes each (R, G, B, 8 bits per
+    /// channel), which is what `image::RgbImage` stores. Clipped to the screen.
+    pub fn draw_image(&mut self, x: i32, y: i32, width: u16, height: u16, rgb: &[u8]) -> Result<()> {
+        let expected = usize::from(width) * usize::from(height) * 3;
+        if rgb.len() != expected {
+            return Err(Error::ImageSize { given: rgb.len(), expected });
+        }
+        let Some((x0, y0, x1, y1)) = self.clip((x, y, i32::from(width), i32::from(height))) else {
+            return Ok(());
+        };
+
+        self.set_addr_window(x0, y0, x1 - 1, y1 - 1)?;
+        self.tft_spi.write_command(Command::MemoryWrite)?;
+
+        // Where the visible part starts in the source image
+        let src_x = (i32::from(x0) - x) as usize;
+        let src_y = (i32::from(y0) - y) as usize;
+        let visible_bytes = usize::from(x1 - x0) * 3;
+        let row_bytes = usize::from(width) * 3;
+
+        let mut buffer = Vec::with_capacity(MAX_BUFFER_SIZE);
+        // `chunks_exact` rather than `as_chunks` (Rust 1.88+) to build on older Pi toolchains
+        #[allow(clippy::chunks_exact_to_as_chunks)]
+        for row in 0..usize::from(y1 - y0) {
+            let start = (src_y + row) * row_bytes + src_x * 3;
+            for pixel in rgb[start..start + visible_bytes].chunks_exact(3) {
+                buffer.extend_from_slice(&Color::rgb(pixel[0], pixel[1], pixel[2]).to_rgb666_bytes());
+                // MAX_BUFFER_SIZE is a whole number of pixels, so this lands exactly
+                if buffer.len() == MAX_BUFFER_SIZE {
+                    self.tft_spi.write_data(&buffer)?;
+                    buffer.clear();
+                }
+            }
+        }
+        if !buffer.is_empty() {
+            self.tft_spi.write_data(&buffer)?;
+        }
+
+        Ok(())
+    }
+
     /// `fill_rectangle` for signed, possibly off-screen rectangles.
-    fn fill_rect_clipped(&mut self, (x, y, w, h): shapes::Rect, color: Color) -> Result<()> {
+    fn fill_rect_clipped(&mut self, rect: shapes::Rect, color: Color) -> Result<()> {
+        match self.clip(rect) {
+            Some((x0, y0, x1, y1)) => self.fill_rectangle(x0, y0, x1 - x0, y1 - y0, color),
+            None => Ok(()),
+        }
+    }
+
+    /// The on-screen part of a rectangle as `(x0, y0, x1, y1)`, end exclusive,
+    /// or `None` if none of it is on screen.
+    fn clip(&self, (x, y, w, h): shapes::Rect) -> Option<(u16, u16, u16, u16)> {
         let x0 = x.max(0);
         let y0 = y.max(0);
         let x1 = x.saturating_add(w).min(i32::from(self.width));
         let y1 = y.saturating_add(h).min(i32::from(self.height));
         if x1 <= x0 || y1 <= y0 {
-            return Ok(());
+            return None;
         }
-        self.fill_rectangle(
-            x0 as u16,
-            y0 as u16,
-            (x1 - x0) as u16,
-            (y1 - y0) as u16,
-            color,
-        )
+        Some((x0 as u16, y0 as u16, x1 as u16, y1 as u16))
     }
 
     /// Draws `text` with its top-left corner at (`x`, `y`), scaled by `size`

@@ -6,6 +6,8 @@ use rppal::spi;
 pub enum Error {
     Spi(spi::Error),
     Size { given: u16, max: u16 },
+    /// Pixel buffer length doesn't match width * height * 3
+    ImageSize { given: usize, expected: usize },
 }
 
 impl Display for Error {
@@ -13,6 +15,9 @@ impl Display for Error {
         match self {
             Self::Spi(err) => write!(f, "SPI Error: {err}"),
             Self::Size { given, max } => write!(f, "Given size: {given}, Max size: {max}"),
+            Self::ImageSize { given, expected } => {
+                write!(f, "Image buffer is {given} bytes, expected {expected} (width * height * 3)")
+            }
         }
     }
 }
