@@ -43,7 +43,13 @@ pub fn scale(image: &DynamicImage, width: u16, height: u16, scale: Scale) -> Pic
     let (w, h) = (u32::from(width), u32::from(height));
     let scaled = match scale {
         Scale::Fit => image.resize(w, h, FilterType::Triangle),
-        Scale::Fill => image.resize_to_fill(w, h, FilterType::Triangle),
+        // Crop the source to the screen's shape first, then resize. (Resizing
+        // first, as `resize_to_fill` does, makes a huge intermediate image for
+        // very thin pictures: a 5000x1 strip would become 1,600,000x320.)
+        Scale::Fill => {
+            let (x, y, crop_w, crop_h) = center_crop(image.width(), image.height(), w, h);
+            image.crop_imm(x, y, crop_w, crop_h).resize_exact(w, h, FilterType::Triangle)
+        }
     };
     let rgb = scaled.into_rgb8();
     Picture {
@@ -52,6 +58,21 @@ pub fn scale(image: &DynamicImage, width: u16, height: u16, scale: Scale) -> Pic
         height: rgb.height() as u16,
         rgb: rgb.into_raw(),
     }
+}
+
+/// The largest centered part of an `image_w` x `image_h` picture with the
+/// same shape as a `w` x `h` screen, as (x, y, width, height).
+fn center_crop(image_w: u32, image_h: u32, w: u32, h: u32) -> (u32, u32, u32, u32) {
+    let (iw, ih, w, h) = (u64::from(image_w), u64::from(image_h), u64::from(w), u64::from(h));
+    let (crop_w, crop_h) = if iw * h > ih * w {
+        // Wider than the screen: use the full height, cut the sides
+        ((ih * w / h).max(1), ih)
+    } else {
+        // Taller than the screen: use the full width, cut top and bottom
+        (iw, (iw * h / w).max(1))
+    };
+    // All values are at most the image's own u32 size
+    (((iw - crop_w) / 2) as u32, ((ih - crop_h) / 2) as u32, crop_w as u32, crop_h as u32)
 }
 
 /// Whether a picture is taller than it is wide (after EXIF orientation).
@@ -242,6 +263,34 @@ mod tests {
         std::fs::write(&truncated, &jpeg[..jpeg.len() / 2]).unwrap();
         assert!(open(&truncated).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn center_crop_matches_screen_shape() {
+        // Wider than 3:2: sides cut
+        assert_eq!(center_crop(960, 320, 480, 320), (240, 0, 480, 320));
+        assert_eq!(center_crop(4000, 2000, 480, 320), (500, 0, 3000, 2000));
+        // Taller than 3:2: top and bottom cut
+        assert_eq!(center_crop(4000, 3000, 480, 320), (0, 167, 4000, 2666));
+        assert_eq!(center_crop(300, 600, 320, 480), (0, 75, 300, 450));
+        // Same shape: nothing cut
+        assert_eq!(center_crop(960, 640, 480, 320), (0, 0, 960, 640));
+        // Thin strips keep at least one pixel
+        assert_eq!(center_crop(5000, 1, 480, 320), (2499, 0, 1, 1));
+        assert_eq!(center_crop(1, 5000, 480, 320), (0, 2499, 1, 1));
+    }
+
+    /// Very thin pictures still scale to at least 1x1 and stay on screen.
+    #[test]
+    fn extreme_aspect_ratios() {
+        for (w, h) in [(4000, 3), (3, 4000), (1, 1), (5000, 1)] {
+            for mode in [Scale::Fit, Scale::Fill] {
+                let picture = scale(&test_image(w, h), 480, 320, mode);
+                let size = (picture.width, picture.height);
+                assert!((1..=480).contains(&size.0) && (1..=320).contains(&size.1), "{w}x{h} {mode:?}: {size:?}");
+                assert_eq!(picture.rgb.len(), usize::from(size.0) * usize::from(size.1) * 3);
+            }
+        }
     }
 
     #[test]
