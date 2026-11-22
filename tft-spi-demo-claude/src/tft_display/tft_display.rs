@@ -148,11 +148,17 @@ impl<S: TftSpi> TftDisplay<S> {
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
         self.tft_spi.write_command(Command::MemoryWrite)?;
 
-        // One buffer full of the color, written as many times as needed.
-        let pixel = color.to_rgb666_bytes();
-        let buffer: Vec<u8> = pixel.iter().copied().cycle().take(MAX_BUFFER_SIZE).collect();
-
+        // One buffer of the color (no bigger than needed: shapes and text
+        // send lots of small fills), written as many times as needed.
         let mut remaining = w as usize * h as usize * BYTES_PER_PIXEL;
+        let pixel = color.to_rgb666_bytes();
+        let buffer: Vec<u8> = pixel
+            .iter()
+            .copied()
+            .cycle()
+            .take(remaining.min(MAX_BUFFER_SIZE))
+            .collect();
+
         while remaining > 0 {
             let n = remaining.min(MAX_BUFFER_SIZE);
             self.tft_spi.write_data(&buffer[..n])?;
