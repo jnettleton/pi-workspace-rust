@@ -51,13 +51,31 @@ pub fn scale(image: &DynamicImage, width: u16, height: u16, scale: Scale) -> Pic
             image.crop_imm(x, y, crop_w, crop_h).resize_exact(w, h, FilterType::Triangle)
         }
     };
-    let rgb = scaled.into_rgb8();
+    let rgb = if scaled.color().has_alpha() {
+        over_black(scaled.into_rgba8())
+    } else {
+        scaled.into_rgb8()
+    };
     Picture {
         // Both are at most width/height, so they fit in u16
         width: rgb.width() as u16,
         height: rgb.height() as u16,
         rgb: rgb.into_raw(),
     }
+}
+
+/// Blends a picture with transparency over a black background. (Just dropping
+/// the alpha channel would show whatever color is stored under transparent
+/// pixels.)
+fn over_black(rgba: image::RgbaImage) -> image::RgbImage {
+    let (w, h) = rgba.dimensions();
+    let mut rgb = image::RgbImage::new(w, h);
+    for (out, px) in rgb.pixels_mut().zip(rgba.pixels()) {
+        let alpha = u16::from(px[3]);
+        let blend = |c: u8| ((u16::from(c) * alpha + 127) / 255) as u8;
+        *out = image::Rgb([blend(px[0]), blend(px[1]), blend(px[2])]);
+    }
+    rgb
 }
 
 /// The largest centered part of an `image_w` x `image_h` picture with the
@@ -278,6 +296,23 @@ mod tests {
         // Thin strips keep at least one pixel
         assert_eq!(center_crop(5000, 1, 480, 320), (2499, 0, 1, 1));
         assert_eq!(center_crop(1, 5000, 480, 320), (0, 2499, 1, 1));
+    }
+
+    /// Transparent parts of a picture are shown over black, not as whatever
+    /// color happens to be stored under the transparency.
+    #[test]
+    fn transparency_shows_black() {
+        use image::{Rgba, RgbaImage};
+        // 3 pixels: transparent red, half-transparent white, opaque blue
+        let image = DynamicImage::ImageRgba8(RgbaImage::from_fn(3, 1, |x, _| match x {
+            0 => Rgba([255, 0, 0, 0]),
+            1 => Rgba([255, 255, 255, 128]),
+            _ => Rgba([0, 0, 255, 255]),
+        }));
+        let picture = scale(&image, 3, 1, Scale::Fit);
+        assert_eq!(&picture.rgb[0..3], &[0, 0, 0], "fully transparent");
+        assert!(picture.rgb[3..6].iter().all(|&c| (127..=129).contains(&c)), "half transparent: {:?}", &picture.rgb[3..6]);
+        assert_eq!(&picture.rgb[6..9], &[0, 0, 255], "opaque");
     }
 
     /// Very thin pictures still scale to at least 1x1 and stay on screen.
