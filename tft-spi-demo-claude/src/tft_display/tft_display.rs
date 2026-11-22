@@ -275,7 +275,8 @@ impl<S: TftSpi> TftDisplay<S> {
 
     /// Draws `text` with its top-left corner at (`x`, `y`), scaled by `size`
     /// (1 = 6x8 pixels per character, 2 = 12x16, ...). `'\n'` starts a new line
-    /// at `x`. Text running off the screen is clipped, not wrapped.
+    /// at `x`; `'\r'` is ignored, so Windows line endings work. Text running
+    /// off the screen is clipped, not wrapped.
     pub fn draw_text(
         &mut self,
         x: u16,
@@ -289,10 +290,14 @@ impl<S: TftSpi> TftDisplay<S> {
         let (mut cursor_x, mut cursor_y) = (x, y);
 
         for c in text.chars() {
-            if c == '\n' {
-                cursor_x = x;
-                cursor_y = cursor_y.saturating_add(font::GLYPH_HEIGHT * size);
-                continue;
+            match c {
+                '\n' => {
+                    cursor_x = x;
+                    cursor_y = cursor_y.saturating_add(font::GLYPH_HEIGHT * size);
+                    continue;
+                }
+                '\r' => continue,
+                _ => {}
             }
             self.draw_char(cursor_x, cursor_y, c, fg, bg, size as u8)?;
             cursor_x = cursor_x.saturating_add(font::CHAR_ADVANCE * size);
@@ -303,7 +308,12 @@ impl<S: TftSpi> TftDisplay<S> {
 
     /// Width in pixels of the longest line of `text` at `size`.
     pub fn text_width(text: &str, size: u8) -> u16 {
-        let longest = text.lines().map(|l| l.chars().count()).max().unwrap_or(0);
+        // Same rules as draw_text: lines end at '\n', '\r' takes no space
+        let longest = text
+            .split('\n')
+            .map(|line| line.chars().filter(|&c| c != '\r').count())
+            .max()
+            .unwrap_or(0);
         (longest as u16).saturating_mul(font::CHAR_ADVANCE * u16::from(size.max(1)))
     }
 

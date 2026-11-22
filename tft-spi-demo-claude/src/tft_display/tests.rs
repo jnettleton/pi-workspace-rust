@@ -325,6 +325,35 @@ fn text_width() {
     assert_eq!(Display::text_width("ab\nlonger\nc", 1), 36, "longest line");
 }
 
+/// Windows line endings ("\r\n") draw the same as "\n".
+#[test]
+fn draw_text_ignores_carriage_returns() {
+    let (mut display, spi) = landscape();
+    display.draw_text(2, 3, "one\r\ntwo\r\n\r\nfour", Color::WHITE, Color::RED, 2).unwrap();
+    TextAt { text: "one\ntwo\n\nfour", x: 2, y: 3, size: 2, fg: Color::WHITE, bg: Color::RED }.check(&spi);
+}
+
+/// text_width agrees with what draw_text actually covers (character cells
+/// drawn in the background color), including odd line endings.
+#[test]
+fn text_width_matches_drawn_width() {
+    for text in ["abc", "ab\nlonger\nc", "ab\r\ncd", "trailing\n", "\n\nx", "tab\there", "\u{e9}t\u{e9}"] {
+        let (mut display, spi) = landscape();
+        display.draw_text(0, 0, text, Color::WHITE, Color::BLUE, 1).unwrap();
+        let p = spi.0.borrow();
+        let drawn_width = (0..p.width)
+            .filter(|&x| (0..p.height).any(|y| p.pixels[y * p.width + x] != BLACK))
+            .map(|x| x + 1)
+            .max()
+            .unwrap_or(0);
+        assert_eq!(
+            usize::from(TftDisplay::<MockSpi>::text_width(text, 1)),
+            drawn_width,
+            "{text:?}"
+        );
+    }
+}
+
 // ---- rotations ----
 
 const ROTATIONS: [Rotate; 4] = [Rotate::Degrees0, Rotate::Degrees90, Rotate::Degrees180, Rotate::Degrees270];
