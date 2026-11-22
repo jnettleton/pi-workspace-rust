@@ -11,7 +11,7 @@ use super::{
     font,
     mock::{MockSpi, GRAM_H, GRAM_W, MADCTL},
     shapes,
-    tft_display::TftDisplay,
+    tft_display::{Gamma, TftDisplay},
 };
 
 /// A 480x320 landscape display on a mock panel.
@@ -682,6 +682,25 @@ fn initialize_sends_known_working_sequence() {
     assert_eq!(p.resets, vec![0], "one hardware reset, before any command");
     assert!(p.pixel_transfers.is_empty(), "initialize sends no pixels");
     assert_eq!((display.width(), display.height(), display.rotation()), (320, 480, Rotate::Degrees0));
+}
+
+#[test]
+fn initialize_gamma_options() {
+    let gamma_commands = |gamma| {
+        let spi = MockSpi::new(320, 480);
+        let mut display = TftDisplay::new(spi.clone());
+        display.set_gamma(gamma);
+        display.initialize().unwrap();
+        let commands: Vec<u8> = spi.0.borrow().commands.iter().map(|(c, _)| *c).collect();
+        commands.into_iter().filter(|c| (0xE0..=0xE2).contains(c)).collect::<Vec<_>>()
+    };
+    assert_eq!(gamma_commands(Gamma::Full), [0xE0, 0xE1, 0xE2]);
+    assert_eq!(gamma_commands(Gamma::Analog), [0xE0, 0xE1]);
+    assert!(gamma_commands(Gamma::PanelDefault).is_empty());
+
+    assert_eq!(Gamma::from_name("Analog"), Some(Gamma::Analog));
+    assert_eq!(Gamma::from_name("none"), Some(Gamma::PanelDefault));
+    assert_eq!(Gamma::from_name("bogus"), None);
 }
 
 /// The 3-byte pixels the driver sends only work in 18-bit mode.

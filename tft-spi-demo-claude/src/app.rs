@@ -11,7 +11,11 @@ use std::{
 
 use crate::calibrate;
 use crate::picture::{self, Scale};
-use crate::tft_display::{color::Color, enums::Rotate, tft_display::TftDisplay};
+use crate::tft_display::{
+    color::Color,
+    enums::Rotate,
+    tft_display::{Gamma, TftDisplay},
+};
 use crate::tft_spi::TftSpiImpl;
 use crate::tft_touch::tft_touch::TftTouch;
 use crate::ui::{self, BUTTONS};
@@ -24,6 +28,9 @@ const CALIBRATION_FILE: &str = "touch_calibration.txt";
 /// Usage:
 ///   tft-spi-demo-claude [--calibrate]      demo: shapes, text, touch drawing
 ///   tft-spi-demo-claude [--fill] <image>   show a JPEG or PNG and exit
+///   tft-spi-demo-claude --colors           color gradients and exit
+///
+/// `TFT_GAMMA=full|analog|none` picks the gamma tables sent at startup.
 pub fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
     let has_flag = |flag: &str| args.iter().any(|arg| arg == flag);
@@ -32,7 +39,20 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     // Display on CE0 (held low as a GPIO), touch on CE1: separate SPI handles.
     let spi = TftSpiImpl::new()?;
     let mut display = TftDisplay::new(spi.clone());
+    let gamma = match env::var("TFT_GAMMA") {
+        Ok(name) => Gamma::from_name(&name).unwrap_or_else(|| {
+            eprintln!("ignoring TFT_GAMMA={name:?}: use full, analog or none");
+            Gamma::Full
+        }),
+        Err(_) => Gamma::Full,
+    };
+    println!("gamma: {gamma:?} (set TFT_GAMMA=full, analog or none to change)");
+    display.set_gamma(gamma);
     display.initialize()?;
+
+    if has_flag("--colors") {
+        return color_test(&mut display);
+    }
 
     if let Some(path) = image_path {
         let scale = if has_flag("--fill") { Scale::Fill } else { Scale::Fit };
@@ -85,6 +105,38 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             last_point = Some(point);
         }
     }
+}
+
+/// Landscape screen of gradients, dark (left) to bright (right): red, green,
+/// blue, grey, and orange to beige (the colors of the sample photo). Each
+/// band should brighten smoothly and keep its hue.
+fn color_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
+    display.set_rotation(Rotate::Degrees90)?;
+    let (w, h) = (usize::from(display.width()), usize::from(display.height()));
+    let bands: [(&str, [u8; 3]); 6] = [
+        ("red", [255, 0, 0]),
+        ("green", [0, 255, 0]),
+        ("blue", [0, 0, 255]),
+        ("grey", [255, 255, 255]),
+        ("orange", [255, 128, 32]),
+        ("beige", [240, 210, 180]),
+    ];
+    let band_h = h / bands.len();
+    let mut rgb = vec![0u8; w * h * 3];
+    for y in 0..h {
+        let (_, full) = bands[(y / band_h).min(bands.len() - 1)];
+        for x in 0..w {
+            for (c, &value) in full.iter().enumerate() {
+                rgb[(y * w + x) * 3 + c] = (usize::from(value) * x / (w - 1)) as u8;
+            }
+        }
+    }
+    display.draw_image(0, 0, w as u16, h as u16, &rgb)?;
+    for (i, (name, _)) in bands.iter().enumerate() {
+        let y = (i * band_h + band_h / 2 - 4) as u16;
+        display.draw_text(4, y, name, Color::WHITE, Color::BLACK, 1)?;
+    }
+    Ok(())
 }
 
 /// Lines and circles, including some that run off the screen edges.

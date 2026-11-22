@@ -27,6 +27,33 @@ pub struct TftDisplay<S: TftSpi> {
     width: u16,
     height: u16,
     rotation: Rotate,
+    gamma: Gamma,
+}
+
+/// Which gamma tables `initialize` sends. With the 8-bit bus most of these
+/// commands never reached the panel intact; with the 16-bit bus they do, and
+/// photos came out with strong, banded color shifts (grey as cyan, orange as
+/// yellow-green), so this is selectable while finding the right setup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Gamma {
+    /// Positive, negative and digital gamma (tft-spi-demo's sequence)
+    Full,
+    /// Positive and negative gamma only, no digital gamma table
+    Analog,
+    /// None: the panel's own defaults after reset
+    PanelDefault,
+}
+
+impl Gamma {
+    /// From a name: `full`, `analog` or `none`.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "full" => Some(Self::Full),
+            "analog" => Some(Self::Analog),
+            "none" | "default" => Some(Self::PanelDefault),
+            _ => None,
+        }
+    }
 }
 
 impl<S: TftSpi> TftDisplay<S> {
@@ -36,7 +63,13 @@ impl<S: TftSpi> TftDisplay<S> {
             width: NATIVE_WIDTH,
             height: NATIVE_HEIGHT,
             rotation: Rotate::Degrees0,
+            gamma: Gamma::Full,
         }
+    }
+
+    /// Sets which gamma tables the next `initialize` sends.
+    pub fn set_gamma(&mut self, gamma: Gamma) {
+        self.gamma = gamma;
     }
 
     pub fn width(&self) -> u16 {
@@ -80,27 +113,31 @@ impl<S: TftSpi> TftDisplay<S> {
         spi.write_reg(Command::InterfacePixelFormat, &[(dpi << 4) | dbi])?;
         spi.write_reg(Command::InterfaceModeControl, &[0x00])?;
 
-        spi.write_reg(
-            Command::PositiveGammaControl,
-            &[
-                0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11,
-                0x0D, 0x00,
-            ],
-        )?;
-        spi.write_reg(
-            Command::NegativeGammaControl,
-            &[
-                0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24,
-                0x20, 0x00,
-            ],
-        )?;
-        spi.write_reg(
-            Command::DigitalGammaControl1,
-            &[
-                0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24,
-                0x20, 0x00,
-            ],
-        )?;
+        if self.gamma != Gamma::PanelDefault {
+            spi.write_reg(
+                Command::PositiveGammaControl,
+                &[
+                    0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11,
+                    0x0D, 0x00,
+                ],
+            )?;
+            spi.write_reg(
+                Command::NegativeGammaControl,
+                &[
+                    0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24,
+                    0x20, 0x00,
+                ],
+            )?;
+        }
+        if self.gamma == Gamma::Full {
+            spi.write_reg(
+                Command::DigitalGammaControl1,
+                &[
+                    0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24,
+                    0x20, 0x00,
+                ],
+            )?;
+        }
 
         spi.write_command_delay(Command::SleepOut, Duration::from_millis(120))?;
         spi.write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
