@@ -84,7 +84,7 @@ directory.
 
 ## Tests
 
-`cargo test` runs on any platform, including Windows (74 tests, a few
+`cargo test` runs on any platform, including Windows (77 tests, a few
 seconds). The Pi-only parts (`rppal`, the SPI and touch drivers, the app's
 main loop) are left out of non-Linux builds.
 
@@ -103,6 +103,7 @@ What's covered:
 | Initialization | The known-working command sequence, 18-bit pixel format, reset and ILI9486 timing |
 | Touch | Filtering a burst of readings (median, dropping stuck values); the calibration math; the calibration screens with scripted touches (target positions, retries, saving/loading the file, per rotation) |
 | Pictures | JPEG/PNG loading, EXIF orientation, bad files, Fit/Fill scaling and cropping, the viewer's centering and borders |
+| Demo screen | Button layout (rounded, gaps, centered labels), pressed state, which button a touch hits |
 
 Not covered (needs the hardware): the `rppal` SPI/GPIO calls, reading the
 XPT2046 touch controller, and the demo's touch-drawing loop.

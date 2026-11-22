@@ -14,23 +14,12 @@ use crate::picture::{self, Scale};
 use crate::tft_display::{color::Color, enums::Rotate, tft_display::TftDisplay};
 use crate::tft_spi::TftSpiImpl;
 use crate::tft_touch::tft_touch::TftTouch;
+use crate::ui::{self, BUTTONS};
 
 type Display = TftDisplay<TftSpiImpl>;
 
 /// Saved in the current directory. Run with `--calibrate` to redo it.
 const CALIBRATION_FILE: &str = "touch_calibration.txt";
-
-const BUTTON_W: u16 = 120;
-const BUTTON_H: u16 = 40;
-const BUTTON_RADIUS: u16 = 8;
-const LABEL_SIZE: u8 = 2;
-/// (label, text color, button color)
-const BUTTONS: [(&str, Color, Color); 4] = [
-    ("Executed", Color::WHITE, Color::RED),
-    ("Scheduled", Color::BLACK, Color::YELLOW),
-    ("Routines", Color::WHITE, Color::GREY),
-    ("Scenes", Color::BLACK, Color::MAGENTA),
-];
 
 /// Usage:
 ///   tft-spi-demo-claude [--calibrate]      demo: shapes, text, touch drawing
@@ -64,8 +53,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         force_calibration,
     )?;
 
-    draw_ui(&mut display)?;
-    let button_y = display.height() - BUTTON_H;
+    ui::draw_ui(&mut display)?;
 
     // Drag to draw; tap a button to highlight it. Ctrl-C to quit.
     println!("touch the screen (Ctrl-C to quit)...");
@@ -78,13 +66,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         };
         let (x, y) = calibration.to_screen(raw, display.width(), display.height());
 
-        if y >= button_y {
+        if let Some(index) = ui::button_at(x, y, display.height()) {
             last_point = None;
-            let index = usize::from(x / BUTTON_W).min(BUTTONS.len() - 1);
             println!("touch ({x}, {y}): button {}", BUTTONS[index].0);
-            draw_button(&mut display, index, true)?;
+            ui::draw_button(&mut display, index, true)?;
             touch.wait_for_release();
-            draw_button(&mut display, index, false)?;
+            ui::draw_button(&mut display, index, false)?;
         } else {
             println!("touch ({x}, {y}) raw {raw:?}");
             let point = (i32::from(x), i32::from(y));
@@ -169,51 +156,5 @@ fn rotation_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
         display.fill_rectangle(0, display.height() - 40, 120, 40, Color::GREEN)?;
         thread::sleep(Duration::from_secs(1));
     }
-    Ok(())
-}
-
-/// A title, some sample text and a row of buttons along the bottom.
-fn draw_ui(display: &mut Display) -> Result<(), Box<dyn Error>> {
-    display.fill_screen(Color::BLACK)?;
-    display.draw_text(10, 10, "Hello, World!", Color::WHITE, Color::BLUE, 4)?;
-    display.draw_text(
-        10,
-        60,
-        "Touch to draw, tap a button\nRun with --calibrate to redo",
-        Color::GREEN,
-        Color::BLACK,
-        2,
-    )?;
-
-    for index in 0..BUTTONS.len() {
-        draw_button(display, index, false)?;
-    }
-    Ok(())
-}
-
-/// Draws a button; `pressed` swaps its text and background colors.
-fn draw_button(display: &mut Display, index: usize, pressed: bool) -> Result<(), Box<dyn Error>> {
-    let (label, text, button) = BUTTONS[index];
-    let (fg, bg) = if pressed { (button, text) } else { (text, button) };
-
-    let button_x = index as u16 * BUTTON_W;
-    let button_y = display.height() - BUTTON_H;
-    // Rounded button with a 2-pixel black gap around it
-    const GAP: u16 = 2;
-    display.fill_rectangle(button_x, button_y, BUTTON_W, BUTTON_H, Color::BLACK)?;
-    display.fill_round_rectangle(
-        i32::from(button_x + GAP),
-        i32::from(button_y + GAP),
-        BUTTON_W - 2 * GAP,
-        BUTTON_H - 2 * GAP,
-        BUTTON_RADIUS,
-        bg,
-    )?;
-
-    // Center the label in the button
-    let text_w = Display::text_width(label, LABEL_SIZE);
-    let label_x = button_x + BUTTON_W.saturating_sub(text_w) / 2;
-    let label_y = button_y + (BUTTON_H - 8 * u16::from(LABEL_SIZE)) / 2;
-    display.draw_text(label_x, label_y, label, fg, bg, LABEL_SIZE)?;
     Ok(())
 }

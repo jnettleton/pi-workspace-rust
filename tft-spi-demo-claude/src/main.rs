@@ -10,6 +10,7 @@ mod picture;
 pub mod tft_display;
 pub mod tft_spi;
 pub mod tft_touch;
+mod ui;
 #[allow(dead_code)]
 mod util;
 
