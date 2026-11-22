@@ -4,9 +4,13 @@
 //! `h == 1` (filled circles also produce wider blocks). Sending runs instead of
 //! single pixels means far fewer SPI transfers. Coordinates are signed and may
 //! be off-screen; the caller clips.
+//!
+//! The math is done in `i64`, so no `i32` coordinate or `u16` size can
+//! overflow. Note that the work is proportional to the shape's size, not
+//! the visible part: a line millions of pixels long takes millions of steps.
 
 /// `(x, y, width, height)`
-pub type Rect = (i32, i32, i32, i32);
+pub type Rect = (i64, i64, i64, i64);
 
 /// Bresenham line from (x0, y0) to (x1, y1), both ends included.
 pub fn line<E>(
@@ -16,6 +20,7 @@ pub fn line<E>(
     y1: i32,
     mut emit: impl FnMut(Rect) -> Result<(), E>,
 ) -> Result<(), E> {
+    let (x0, y0, x1, y1) = (i64::from(x0), i64::from(y0), i64::from(x1), i64::from(y1));
     let dx = (x1 - x0).abs();
     let dy = -(y1 - y0).abs();
     let sx = if x0 < x1 { 1 } else { -1 };
@@ -62,7 +67,7 @@ pub fn rectangle<E>(
     h: u16,
     mut emit: impl FnMut(Rect) -> Result<(), E>,
 ) -> Result<(), E> {
-    let (w, h) = (i32::from(w), i32::from(h));
+    let (x, y, w, h) = (i64::from(x), i64::from(y), i64::from(w), i64::from(h));
     if w == 0 || h == 0 {
         return Ok(());
     }
@@ -84,6 +89,7 @@ pub fn circle<E>(
     radius: u16,
     mut emit: impl FnMut(Rect) -> Result<(), E>,
 ) -> Result<(), E> {
+    let (cx, cy) = (i64::from(cx), i64::from(cy));
     if radius == 0 {
         return emit((cx, cy, 1, 1));
     }
@@ -120,8 +126,9 @@ pub fn filled_circle<E>(
     radius: u16,
     emit: impl FnMut(Rect) -> Result<(), E>,
 ) -> Result<(), E> {
-    let size = 2 * radius + 1;
-    filled_round_rectangle(cx - i32::from(radius), cy - i32::from(radius), size, size, radius, emit)
+    let r = i64::from(radius);
+    // The diameter can exceed u16, so this goes straight to the i64 version.
+    round_rect(i64::from(cx) - r, i64::from(cy) - r, 2 * r + 1, 2 * r + 1, r, emit)
 }
 
 /// Filled rectangle with its top-left corner at (x, y) and corners rounded
@@ -136,13 +143,23 @@ pub fn filled_round_rectangle<E>(
     w: u16,
     h: u16,
     radius: u16,
+    emit: impl FnMut(Rect) -> Result<(), E>,
+) -> Result<(), E> {
+    round_rect(i64::from(x), i64::from(y), i64::from(w), i64::from(h), i64::from(radius), emit)
+}
+
+fn round_rect<E>(
+    x: i64,
+    y: i64,
+    w: i64,
+    h: i64,
+    radius: i64,
     mut emit: impl FnMut(Rect) -> Result<(), E>,
 ) -> Result<(), E> {
-    if w == 0 || h == 0 {
+    if w <= 0 || h <= 0 {
         return Ok(());
     }
-    let radius = radius.min((w - 1) / 2).min((h - 1) / 2);
-    let (w, h, r) = (i32::from(w), i32::from(h), i32::from(radius));
+    let r = radius.min((w - 1) / 2).min((h - 1) / 2);
     if r == 0 {
         return emit((x, y, w, h));
     }
@@ -152,7 +169,8 @@ pub fn filled_round_rectangle<E>(
     let (top, bottom) = (y + r, y + h - 1 - r);
     let stretch = right - left; // extra width between the left and right corners
 
-    octant_runs(radius, |x_start, x_end, dy| {
+    // r <= radius, which came from a u16
+    octant_runs(r as u16, |x_start, x_end, dy| {
         let len = x_end - x_start + 1;
         // Rows top - dy / bottom + dy: from the left corner's edge to the right corner's
         emit((left - x_end, top - dy, stretch + 2 * x_end + 1, 1))?;
@@ -174,9 +192,9 @@ pub fn filled_round_rectangle<E>(
 /// run of consecutive x values that share the same y as `(x_start, x_end, y)`.
 fn octant_runs<E>(
     radius: u16,
-    mut run: impl FnMut(i32, i32, i32) -> Result<(), E>,
+    mut run: impl FnMut(i64, i64, i64) -> Result<(), E>,
 ) -> Result<(), E> {
-    let r = i32::from(radius);
+    let r = i64::from(radius);
     let (mut x, mut y) = (0, r);
     let mut d = 1 - r;
     let mut run_start = 0;
@@ -200,7 +218,7 @@ fn octant_runs<E>(
 }
 
 /// Rectangle covering a run between two points on the same row or column.
-fn run((ax, ay): (i32, i32), (bx, by): (i32, i32)) -> Rect {
+fn run((ax, ay): (i64, i64), (bx, by): (i64, i64)) -> Rect {
     (ax.min(bx), ay.min(by), (bx - ax).abs() + 1, (by - ay).abs() + 1)
 }
 
@@ -219,7 +237,7 @@ mod tests {
             rects += 1;
             for px in x..x + w {
                 for py in y..y + h {
-                    pixels.insert((px, py));
+                    pixels.insert((i32::try_from(px).unwrap(), i32::try_from(py).unwrap()));
                 }
             }
             Ok(())
@@ -314,7 +332,7 @@ mod tests {
                     // No pixel is drawn twice
                     for px in rx..rx + rw {
                         for py in ry..ry + rh {
-                            assert!(seen.insert((px, py)), "({px}, {py}) drawn twice");
+                            assert!(seen.insert((px as i32, py as i32)), "({px}, {py}) drawn twice");
                         }
                     }
                     emit((rx, ry, rw, rh))

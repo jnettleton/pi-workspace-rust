@@ -13,7 +13,7 @@ use super::{
     color::Color,
     enums::{Command, Rotate},
     error::Error,
-    font,
+    font, shapes,
     tft_display::{Result, TftDisplay},
 };
 use crate::tft_spi::TftSpi;
@@ -666,6 +666,112 @@ fn rotation_address_bounds() {
         assert!(matches!(display.set_addr_window(0, 0, w - 1, h), Err(Error::Size { .. })), "{rotation:?}");
         assert_eq!(spi.0.borrow().commands.len(), sent_before, "{rotation:?}");
     }
+}
+
+// ---- shapes through the display ----
+
+/// Draws a shape on a landscape display and checks the panel shows exactly
+/// the on-screen part of what `shapes` produces for it.
+fn check_clipped_shape(
+    name: &str,
+    draw: impl FnOnce(&mut TftDisplay<MockSpi>, Color),
+    raster: impl FnOnce(&mut dyn FnMut(shapes::Rect) -> std::result::Result<(), ()>),
+) {
+    let mut expected = std::collections::HashSet::new();
+    raster(&mut |(x, y, w, h)| {
+        for px in x.max(0)..(x + w).min(480) {
+            for py in y.max(0)..(y + h).min(320) {
+                expected.insert((px as usize, py as usize));
+            }
+        }
+        Ok(())
+    });
+
+    let (mut display, spi) = landscape();
+    draw(&mut display, Color::CYAN);
+    let cyan = Color::CYAN.to_rgb666_bytes();
+    check_frame(&spi, |x, y| if expected.contains(&(x, y)) { cyan } else { BLACK });
+    assert!(!expected.is_empty(), "{name}: test shape should be partly visible");
+}
+
+#[test]
+fn lines_clipped_at_edges() {
+    for (x0, y0, x1, y1) in [
+        (-100, -40, 600, 400),  // through the screen, both ends off it
+        (240, 160, 900, 170),   // off the right
+        (240, 160, 250, -900),  // off the top, steep
+        (-5, 319, 484, 319),    // along the bottom row
+        (479, -10, 479, 330),   // along the right column
+        (-30, 40, 40, -30),     // clipping the top-left corner
+    ] {
+        check_clipped_shape(
+            &format!("line {:?}", (x0, y0, x1, y1)),
+            |d, c| d.draw_line(x0, y0, x1, y1, c).unwrap(),
+            |emit| shapes::line(x0, y0, x1, y1, emit).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn circles_clipped_at_edges() {
+    for (cx, cy, r) in [(0, 0, 50), (479, 319, 30), (240, -20, 40), (-10, 160, 60), (240, 160, 280)] {
+        check_clipped_shape(
+            &format!("circle {:?}", (cx, cy, r)),
+            |d, c| d.draw_circle(cx, cy, r, c).unwrap(),
+            |emit| shapes::circle(cx, cy, r, emit).unwrap(),
+        );
+        check_clipped_shape(
+            &format!("filled circle {:?}", (cx, cy, r)),
+            |d, c| d.fill_circle(cx, cy, r, c).unwrap(),
+            |emit| shapes::filled_circle(cx, cy, r, emit).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn rectangles_clipped_at_edges() {
+    for (x, y, w, h, r) in [(-20, -20, 100, 60, 10), (440, 290, 100, 100, 20), (-10, 100, 500, 50, 25), (5, 5, 470, 310, 0)] {
+        check_clipped_shape(
+            &format!("rectangle {:?}", (x, y, w, h)),
+            |d, c| d.draw_rectangle(x, y, w, h, c).unwrap(),
+            |emit| shapes::rectangle(x, y, w, h, emit).unwrap(),
+        );
+        check_clipped_shape(
+            &format!("round rectangle {:?}", (x, y, w, h, r)),
+            |d, c| d.fill_round_rectangle(x, y, w, h, r, c).unwrap(),
+            |emit| shapes::filled_round_rectangle(x, y, w, h, r, emit).unwrap(),
+        );
+    }
+}
+
+#[test]
+fn draw_pixel_on_and_off_screen() {
+    let (mut display, spi) = landscape();
+    for (x, y) in [(0, 0), (479, 319), (100, 200), (-1, 0), (0, -1), (480, 0), (0, 320)] {
+        display.draw_pixel(x, y, Color::WHITE).unwrap();
+    }
+    let white = Color::WHITE.to_rgb666_bytes();
+    let on = [(0, 0), (479, 319), (100, 200)];
+    let sent = check_frame(&spi, |x, y| if on.contains(&(x, y)) { white } else { BLACK });
+    assert_eq!(sent, 3);
+}
+
+/// Shapes far outside the screen, near the i32 limits, draw nothing and
+/// don't overflow.
+#[test]
+fn shapes_at_extreme_coordinates() {
+    let (mut display, spi) = landscape();
+    let (max, min) = (i32::MAX, i32::MIN);
+    display.draw_pixel(max, min, Color::WHITE).unwrap();
+    display.draw_line(max - 10, max - 10, max, max, Color::WHITE).unwrap();
+    display.draw_line(min, min, min + 10, min + 3, Color::WHITE).unwrap();
+    display.draw_circle(max, max, u16::MAX, Color::WHITE).unwrap();
+    display.draw_circle(min, min, u16::MAX, Color::WHITE).unwrap();
+    display.fill_circle(max, min, u16::MAX, Color::WHITE).unwrap();
+    display.draw_rectangle(max, max, u16::MAX, u16::MAX, Color::WHITE).unwrap();
+    display.fill_round_rectangle(max - 5, max - 5, u16::MAX, u16::MAX, 100, Color::WHITE).unwrap();
+    display.draw_image(max - 1, max - 1, 2, 2, &[0; 12]).unwrap();
+    assert!(spi.0.borrow().pixel_transfers.is_empty());
 }
 
 // ---- initialization ----

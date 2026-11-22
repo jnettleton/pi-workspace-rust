@@ -164,7 +164,7 @@ impl<S: TftSpi> TftDisplay<S> {
 
     /// Sets one pixel. Off-screen coordinates are ignored.
     pub fn draw_pixel(&mut self, x: i32, y: i32, color: Color) -> Result<()> {
-        self.fill_rect_clipped((x, y, 1, 1), color)
+        self.fill_rect_clipped((i64::from(x), i64::from(y), 1, 1), color)
     }
 
     /// Draws a 1-pixel line from (x0, y0) to (x1, y1), both ends included.
@@ -212,7 +212,7 @@ impl<S: TftSpi> TftDisplay<S> {
         if rgb.len() != expected {
             return Err(Error::ImageSize { given: rgb.len(), expected });
         }
-        let Some((x0, y0, x1, y1)) = self.clip((x, y, i32::from(width), i32::from(height))) else {
+        let Some((x0, y0, x1, y1)) = self.clip((i64::from(x), i64::from(y), i64::from(width), i64::from(height))) else {
             return Ok(());
         };
 
@@ -220,8 +220,8 @@ impl<S: TftSpi> TftDisplay<S> {
         self.tft_spi.write_command(Command::MemoryWrite)?;
 
         // Where the visible part starts in the source image
-        let src_x = (i32::from(x0) - x) as usize;
-        let src_y = (i32::from(y0) - y) as usize;
+        let src_x = (i64::from(x0) - i64::from(x)) as usize;
+        let src_y = (i64::from(y0) - i64::from(y)) as usize;
         let visible_bytes = usize::from(x1 - x0) * 3;
         let row_bytes = usize::from(width) * 3;
 
@@ -259,8 +259,8 @@ impl<S: TftSpi> TftDisplay<S> {
     fn clip(&self, (x, y, w, h): shapes::Rect) -> Option<(u16, u16, u16, u16)> {
         let x0 = x.max(0);
         let y0 = y.max(0);
-        let x1 = x.saturating_add(w).min(i32::from(self.width));
-        let y1 = y.saturating_add(h).min(i32::from(self.height));
+        let x1 = (x + w).min(i64::from(self.width));
+        let y1 = (y + h).min(i64::from(self.height));
         if x1 <= x0 || y1 <= y0 {
             return None;
         }
