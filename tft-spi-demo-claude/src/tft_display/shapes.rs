@@ -118,18 +118,56 @@ pub fn filled_circle<E>(
     cx: i32,
     cy: i32,
     radius: u16,
+    emit: impl FnMut(Rect) -> Result<(), E>,
+) -> Result<(), E> {
+    let size = 2 * radius + 1;
+    filled_round_rectangle(cx - i32::from(radius), cy - i32::from(radius), size, size, radius, emit)
+}
+
+/// Filled rectangle with its top-left corner at (x, y) and corners rounded
+/// with `radius`. The radius is reduced to fit if it's more than half the
+/// shorter side, so a large radius gives a pill or circle shape.
+///
+/// Each corner is a quarter of a [`filled_circle`], so the curves match
+/// [`circle`] pixel for pixel.
+pub fn filled_round_rectangle<E>(
+    x: i32,
+    y: i32,
+    w: u16,
+    h: u16,
+    radius: u16,
     mut emit: impl FnMut(Rect) -> Result<(), E>,
 ) -> Result<(), E> {
-    octant_runs(radius, |x_start, x_end, y| {
+    if w == 0 || h == 0 {
+        return Ok(());
+    }
+    let radius = radius.min((w - 1) / 2).min((h - 1) / 2);
+    let (w, h, r) = (i32::from(w), i32::from(h), i32::from(radius));
+    if r == 0 {
+        return emit((x, y, w, h));
+    }
+
+    // Centers of the corner circles
+    let (left, right) = (x + r, x + w - 1 - r);
+    let (top, bottom) = (y + r, y + h - 1 - r);
+    let stretch = right - left; // extra width between the left and right corners
+
+    octant_runs(radius, |x_start, x_end, dy| {
         let len = x_end - x_start + 1;
-        // Rows cy ± y: span out to the widest x on that row
-        emit((cx - x_end, cy - y, 2 * x_end + 1, 1))?;
-        emit((cx - x_end, cy + y, 2 * x_end + 1, 1))?;
-        // Rows cy ± x for x in x_start..=x_end: all span cx - y ..= cx + y
-        emit((cx - y, cy + x_start, 2 * y + 1, len))?;
-        emit((cx - y, cy - x_end, 2 * y + 1, len))?;
+        // Rows top - dy / bottom + dy: from the left corner's edge to the right corner's
+        emit((left - x_end, top - dy, stretch + 2 * x_end + 1, 1))?;
+        emit((left - x_end, bottom + dy, stretch + 2 * x_end + 1, 1))?;
+        // Rows top - x / bottom + x for x in x_start..=x_end: span left - dy ..= right + dy
+        emit((left - dy, top - x_end, stretch + 2 * dy + 1, len))?;
+        emit((left - dy, bottom + x_start, stretch + 2 * dy + 1, len))?;
         Ok(())
-    })
+    })?;
+
+    // Full-width block between the top and bottom corner rows
+    if bottom - top > 1 {
+        emit((x, top + 1, w, bottom - top - 1))?;
+    }
+    Ok(())
 }
 
 /// Walks the octant from 12 o'clock to 45° (x from 0 up to y) and reports each
@@ -333,5 +371,52 @@ mod tests {
             }
             assert!(filled.iter().all(|p| p.1.abs() <= r), "radius {r}: rows outside circle");
         }
+    }
+
+    /// Expected rounded rectangle: a plus-shaped cross of two rectangles, and a
+    /// filled quarter of the reference circle in each corner.
+    fn reference_round_rectangle(x: i32, y: i32, w: i32, h: i32, r: i32) -> Pixels {
+        let (left, right, top, bottom) = (x + r, x + w - 1 - r, y + r, y + h - 1 - r);
+        let mut pixels = Pixels::new();
+        for px in x..x + w {
+            for py in y..y + h {
+                if (left..=right).contains(&px) || (top..=bottom).contains(&py) {
+                    pixels.insert((px, py));
+                }
+            }
+        }
+        let outline = reference_circle(0, 0, r);
+        for (cx, cy, sx, sy) in [(left, top, -1, -1), (right, top, 1, -1), (left, bottom, -1, 1), (right, bottom, 1, 1)] {
+            for dy in 0..=r {
+                // Widest outline pixel on this row of the circle
+                let reach = outline.iter().filter(|p| p.1 == dy).map(|p| p.0).max().unwrap();
+                for dx in 0..=reach {
+                    pixels.insert((cx + sx * dx, cy + sy * dy));
+                }
+            }
+        }
+        pixels
+    }
+
+    #[test]
+    fn filled_round_rectangles() {
+        let cases = [
+            (0, 0, 100, 40, 10, 10),
+            (5, -3, 37, 22, 7, 7),
+            (0, 0, 60, 20, 50, 9),  // radius reduced to fit: (20 - 1) / 2
+            (0, 0, 21, 21, 10, 10), // radius = half: a circle
+            (0, 0, 50, 21, 10, 10), // pill shape
+            (0, 0, 20, 30, 3, 3),
+            (0, 0, 2, 2, 5, 0),
+            (-10, -10, 15, 8, 0, 0),
+        ];
+        for (x, y, w, h, radius, effective) in cases {
+            let (pixels, rects) = rasterize(|emit| filled_round_rectangle(x, y, w, h, radius, emit).unwrap());
+            let expected = reference_round_rectangle(x, y, i32::from(w), i32::from(h), effective);
+            assert_eq!(pixels, expected, "{:?}", (x, y, w, h, radius));
+            assert!(rects <= usize::from(h), "{:?}: {rects} rects for {h} rows", (x, y, w, h, radius));
+        }
+        assert!(rasterize(|emit| filled_round_rectangle(0, 0, 0, 10, 3, emit).unwrap()).0.is_empty());
+        assert!(rasterize(|emit| filled_round_rectangle(0, 0, 10, 0, 3, emit).unwrap()).0.is_empty());
     }
 }

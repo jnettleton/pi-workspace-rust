@@ -18,6 +18,7 @@ const CALIBRATION_FILE: &str = "touch_calibration.txt";
 
 const BUTTON_W: u16 = 120;
 const BUTTON_H: u16 = 40;
+const BUTTON_RADIUS: u16 = 8;
 const LABEL_SIZE: u8 = 2;
 /// (label, text color, button color)
 const BUTTONS: [(&str, Color, Color); 4] = [
@@ -110,6 +111,12 @@ fn shapes_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
     }
     display.draw_rectangle(w / 2 - 30, -20, 60, 50, Color::BLUE)?;
 
+    // Rounded rectangles: small corners, a pill (radius larger than half the
+    // height), and one clipped by the left edge
+    display.fill_round_rectangle(w / 2 - 60, h / 2 + 40, 120, 40, 6, Color::GREEN)?;
+    display.fill_round_rectangle(w / 2 - 60, h / 2 + 90, 120, 30, 100, Color::BROWN)?;
+    display.fill_round_rectangle(-20, 10, 80, 50, 15, Color::TAN)?;
+
     let text_y = display.height() - 20;
     display.draw_text(10, text_y, "lines, circles, rectangles", Color::WHITE, Color::BLACK, 2)?;
     thread::sleep(Duration::from_secs(2));
@@ -160,7 +167,17 @@ fn draw_button(display: &mut Display, index: usize, pressed: bool) -> Result<(),
 
     let button_x = index as u16 * BUTTON_W;
     let button_y = display.height() - BUTTON_H;
-    display.fill_rectangle(button_x, button_y, BUTTON_W, BUTTON_H, bg)?;
+    // Rounded button with a 2-pixel black gap around it
+    const GAP: u16 = 2;
+    display.fill_rectangle(button_x, button_y, BUTTON_W, BUTTON_H, Color::BLACK)?;
+    display.fill_round_rectangle(
+        i32::from(button_x + GAP),
+        i32::from(button_y + GAP),
+        BUTTON_W - 2 * GAP,
+        BUTTON_H - 2 * GAP,
+        BUTTON_RADIUS,
+        bg,
+    )?;
 
     // Center the label in the button
     let text_w = Display::text_width(label, LABEL_SIZE);

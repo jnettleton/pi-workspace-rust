@@ -179,6 +179,21 @@ impl<S: TftSpi> TftDisplay<S> {
         shapes::rectangle(x, y, w, h, |rect| self.fill_rect_clipped(rect, color))
     }
 
+    /// Fills a rectangle with rounded corners, top-left corner at (x, y).
+    /// `radius` is reduced to fit if it's more than half the shorter side
+    /// (so a large radius gives a pill shape). Clipped to the screen.
+    pub fn fill_round_rectangle(
+        &mut self,
+        x: i32,
+        y: i32,
+        w: u16,
+        h: u16,
+        radius: u16,
+        color: Color,
+    ) -> Result<()> {
+        shapes::filled_round_rectangle(x, y, w, h, radius, |rect| self.fill_rect_clipped(rect, color))
+    }
+
     /// Draws a 1-pixel circle outline centered on (cx, cy). Clipped to the screen.
     pub fn draw_circle(&mut self, cx: i32, cy: i32, radius: u16, color: Color) -> Result<()> {
         shapes::circle(cx, cy, radius, |rect| self.fill_rect_clipped(rect, color))
