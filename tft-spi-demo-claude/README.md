@@ -43,12 +43,12 @@ each with its own clock speed.
 
 | | |
 |---|---|
-| Display SPI clock | 31.2 MHz (above the ILI9486's rated SPI speed but works on this board; drop to 16 MHz if pixels get corrupted) |
+| Display SPI clock | 31.2 MHz requested (above the ILI9486's rated SPI speed but works on this board; drop to 16 MHz if pixels get corrupted). The Pi divides its core clock by an even number and rounds down, so on a Pi 4 (500 MHz core clock) this runs at about 27.8 MHz |
 | Touch SPI clock | 2 MHz (XPT2046 maximum is about 2.5 MHz) |
 | SPI mode | Mode 0 |
 | Pixel format (0x3A) | `0x66`: 18 bits per pixel |
 | Max transfer | 4096 bytes (spidev default `bufsiz`); pixels are sent in 4095-byte chunks so no pixel is split |
-| Full-screen update | 480 × 320 × 3 = 460,800 bytes, about 0.12 s at 31.2 MHz |
+| Full-screen update | 480 × 320 × 3 = 460,800 bytes, about 0.13 s at 27.8 MHz |
 | Touch commands | `0xD0` read X, `0x90` read Y (12-bit, differential) |
 
 Rotation is set with MADCTL (0x36), always with the BGR bit (`0x08`):
@@ -84,7 +84,7 @@ directory.
 
 ## Tests
 
-`cargo test` runs on any platform, including Windows (77 tests, a few
+`cargo test` runs on any platform, including Windows (78 tests, a few
 seconds). The Pi-only parts (`rppal`, the SPI and touch drivers, the app's
 main loop) are left out of non-Linux builds.
 
