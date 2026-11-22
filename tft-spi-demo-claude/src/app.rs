@@ -155,7 +155,12 @@ fn rotation_test(display: &mut Display) -> Result<(), Box<dyn Error>> {
         println!("{rotation:?}: {}x{}", display.width(), display.height());
         display.fill_screen(background)?;
         display.fill_rectangle(0, display.height() - 40, 120, 40, Color::GREEN)?;
-        thread::sleep(Duration::from_secs(1));
+        // Upright, readable text means the rotation is right; mirrored or
+        // sideways text shows which way it's wrong.
+        let label = format!("{} deg
+{}x{}", rotation.degrees(), display.width(), display.height());
+        display.draw_text(20, 20, &label, Color::BLACK, background, 4)?;
+        thread::sleep(Duration::from_secs(3));
     }
     Ok(())
 }
