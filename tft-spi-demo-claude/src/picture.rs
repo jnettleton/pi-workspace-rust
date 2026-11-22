@@ -88,7 +88,7 @@ mod tests {
 
     #[test]
     fn opens_jpeg_and_png() {
-        let dir = std::env::temp_dir().join(format!("picture-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("picture-open-test-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let source = test_image(64, 40);
         for name in ["test.jpg", "test.png", "jpeg-without-extension"] {
@@ -98,6 +98,96 @@ mod tests {
             let image = open(&path).unwrap();
             assert_eq!((image.width(), image.height()), (64, 40), "{name}");
         }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A JPEG of `image` with an EXIF block holding just an Orientation tag.
+    fn jpeg_with_orientation(image: &DynamicImage, orientation: u16) -> Vec<u8> {
+        let mut jpeg = Vec::new();
+        image
+            .write_to(&mut std::io::Cursor::new(&mut jpeg), image::ImageFormat::Jpeg)
+            .unwrap();
+        assert_eq!(&jpeg[..2], &[0xFF, 0xD8], "JPEG starts with SOI");
+
+        // TIFF structure (big-endian): header, one IFD with one entry, no next IFD
+        let mut tiff = b"MM\x00\x2A\x00\x00\x00\x08".to_vec();
+        tiff.extend_from_slice(&1u16.to_be_bytes()); // entry count
+        tiff.extend_from_slice(&0x0112u16.to_be_bytes()); // tag: Orientation
+        tiff.extend_from_slice(&3u16.to_be_bytes()); // type: SHORT
+        tiff.extend_from_slice(&1u32.to_be_bytes()); // count
+        tiff.extend_from_slice(&orientation.to_be_bytes());
+        tiff.extend_from_slice(&[0, 0]); // value padding
+        tiff.extend_from_slice(&0u32.to_be_bytes()); // no next IFD
+
+        // APP1 segment right after SOI; its length counts itself but not the marker
+        let mut app1 = vec![0xFF, 0xE1];
+        app1.extend_from_slice(&((2 + 6 + tiff.len()) as u16).to_be_bytes());
+        app1.extend_from_slice(b"Exif\x00\x00");
+        app1.extend_from_slice(&tiff);
+
+        let mut out = jpeg[..2].to_vec();
+        out.extend_from_slice(&app1);
+        out.extend_from_slice(&jpeg[2..]);
+        out
+    }
+
+    /// Phone cameras store the sensor's pixels and an EXIF Orientation saying
+    /// how to turn them; `open` should return the picture the right way up.
+    #[test]
+    fn applies_exif_orientation() {
+        // 64x32, red in the top-left 32x16 quarter, dark elsewhere
+        let stored = DynamicImage::ImageRgb8(RgbImage::from_fn(64, 32, |x, y| {
+            if x < 32 && y < 16 {
+                Rgb([230, 20, 20])
+            } else {
+                Rgb([20, 20, 20])
+            }
+        }));
+        let dir = std::env::temp_dir().join(format!("picture-exif-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+
+        // (orientation, size after turning, where the red quarter ends up)
+        let cases = [
+            (1, (64, 32), "top-left"),     // as stored
+            (3, (64, 32), "bottom-right"), // turn 180
+            (6, (32, 64), "top-right"),    // turn 90 clockwise
+            (8, (32, 64), "bottom-left"),  // turn 90 counter-clockwise
+        ];
+        for (orientation, (w, h), red_corner) in cases {
+            let path = dir.join(format!("orientation-{orientation}.jpg"));
+            std::fs::write(&path, jpeg_with_orientation(&stored, orientation)).unwrap();
+            let image = open(&path).unwrap().into_rgb8();
+            assert_eq!(image.dimensions(), (w, h), "orientation {orientation}");
+
+            // Sample the middle of each quarter (JPEG is lossy, so just check which is red)
+            let red_at = |x: u32, y: u32| image.get_pixel(x, y)[0] > 150;
+            let quarters = [
+                ("top-left", w / 4, h / 4),
+                ("top-right", 3 * w / 4, h / 4),
+                ("bottom-left", w / 4, 3 * h / 4),
+                ("bottom-right", 3 * w / 4, 3 * h / 4),
+            ];
+            for (name, x, y) in quarters {
+                assert_eq!(red_at(x, y), name == red_corner, "orientation {orientation}: {name} quarter");
+            }
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn open_reports_missing_and_invalid_files() {
+        let dir = std::env::temp_dir().join(format!("picture-error-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(open(&dir.join("does-not-exist.jpg")).is_err());
+
+        let not_an_image = dir.join("not-an-image.jpg");
+        std::fs::write(&not_an_image, b"this is not a JPEG").unwrap();
+        assert!(open(&not_an_image).is_err());
+
+        let truncated = dir.join("truncated.jpg");
+        let jpeg = jpeg_with_orientation(&test_image(64, 40), 1);
+        std::fs::write(&truncated, &jpeg[..jpeg.len() / 2]).unwrap();
+        assert!(open(&truncated).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
