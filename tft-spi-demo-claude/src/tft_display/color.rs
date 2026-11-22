@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-/// 24-bit RGB color, sent to the panel as RGB565.
+/// 24-bit RGB color, sent to the panel as 18-bit RGB666.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Color {
     r: u8,
@@ -9,11 +9,17 @@ pub struct Color {
 }
 
 impl Color {
-    pub const WHITE: Color = Color::rgb(255, 255, 255);
     pub const BLACK: Color = Color::rgb(0, 0, 0);
+    pub const WHITE: Color = Color::rgb(255, 255, 255);
     pub const RED: Color = Color::rgb(255, 0, 0);
     pub const GREEN: Color = Color::rgb(0, 255, 0);
     pub const BLUE: Color = Color::rgb(0, 0, 255);
+    pub const CYAN: Color = Color::rgb(0, 255, 255);
+    pub const MAGENTA: Color = Color::rgb(255, 0, 255);
+    pub const YELLOW: Color = Color::rgb(255, 255, 0);
+    pub const TAN: Color = Color::rgb(210, 180, 140);
+    pub const GREY: Color = Color::rgb(128, 128, 128);
+    pub const BROWN: Color = Color::rgb(165, 42, 42);
 
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b }
@@ -44,14 +50,11 @@ impl Color {
         self.b
     }
 
-    /// RGB565: rrrrrggg gggbbbbb
-    pub fn to_rgb565(&self) -> u16 {
-        ((self.r as u16 & 0xF8) << 8) | ((self.g as u16 & 0xFC) << 3) | (self.b as u16 >> 3)
-    }
-
-    /// RGB565 as the two bytes sent over SPI (big-endian).
-    pub fn to_be_bytes(&self) -> [u8; 2] {
-        self.to_rgb565().to_be_bytes()
+    /// The 3 bytes sent over SPI in 18-bit mode. The ILI9486 reads the top
+    /// 6 bits of each byte (D7..D2), so the 8-bit value is used as-is with the
+    /// low 2 bits cleared.
+    pub fn to_rgb666_bytes(&self) -> [u8; 3] {
+        [self.r & 0xFC, self.g & 0xFC, self.b & 0xFC]
     }
 }
 
@@ -66,12 +69,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rgb565_conversion() {
-        assert_eq!(Color::WHITE.to_rgb565(), 0xFFFF);
-        assert_eq!(Color::BLACK.to_rgb565(), 0x0000);
-        assert_eq!(Color::RED.to_rgb565(), 0xF800);
-        assert_eq!(Color::GREEN.to_rgb565(), 0x07E0);
-        assert_eq!(Color::BLUE.to_rgb565(), 0x001F);
-        assert_eq!(Color::RED.to_be_bytes(), [0xF8, 0x00]);
+    fn rgb666_conversion() {
+        assert_eq!(Color::WHITE.to_rgb666_bytes(), [0xFC, 0xFC, 0xFC]);
+        assert_eq!(Color::BLACK.to_rgb666_bytes(), [0x00, 0x00, 0x00]);
+        assert_eq!(Color::RED.to_rgb666_bytes(), [0xFC, 0x00, 0x00]);
+        assert_eq!(Color::BLUE.to_rgb666_bytes(), [0x00, 0x00, 0xFC]);
+        assert_eq!(Color::rgb(0x13, 0x26, 0x11).to_rgb666_bytes(), [0x10, 0x24, 0x10]);
+    }
+
+    #[test]
+    fn from_24_bit() {
+        assert_eq!(Color::from_24_bit(0xFF8000), Ok(Color::rgb(0xFF, 0x80, 0x00)));
+        assert!(Color::from_24_bit(0x1_000_000).is_err());
     }
 }

@@ -17,6 +17,9 @@ pub enum Command {
     InterfacePixelFormat = 0x3A,
 
     InterfaceModeControl = 0xB0,
+    FrameRateControlNormal = 0xB1,  // normal, full colors
+    FrameRateControlIdle = 0xB2,    // idle, 8 colors
+    FrameRateControlPartial = 0xB3, // partial, full colors
     PowerControl3 = 0xC2,
     VcomControl1 = 0xC5,
 
@@ -34,7 +37,7 @@ pub mod madctl {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TFTRotate {
+pub enum Rotate {
     /// Portrait, 320 x 480
     Degrees0,
     /// Landscape, 480 x 320

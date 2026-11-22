@@ -1,36 +1,40 @@
 use crate::tft_display::{
     color::Color,
-    enums::{madctl, Command, TFTRotate},
+    enums::{madctl, Command, Rotate},
     error::Error,
 };
 use crate::tft_spi::TftSpi;
 
-use std::{result, time::Duration};
+use std::{result, thread, time::Duration};
 
 pub type Result<T> = result::Result<T, Error>;
 
-/// spidev's default `bufsiz` is 4096 bytes per transfer. Must be even.
-const MAX_BUFFER_SIZE: usize = 4096;
+/// Bytes per pixel in 18-bit mode
+const BYTES_PER_PIXEL: usize = 3;
+
+/// spidev's default `bufsiz` is 4096 bytes per transfer. Rounded down to a
+/// whole number of pixels so a pixel is never split across two transfers.
+const MAX_BUFFER_SIZE: usize = (4096 / BYTES_PER_PIXEL) * BYTES_PER_PIXEL;
 
 /// Native (portrait) panel size of the ILI9486
 const NATIVE_WIDTH: u16 = 320;
 const NATIVE_HEIGHT: u16 = 480;
 
-/// Driver for the Waveshare 3.5" RPi LCD (A), ILI9486, 16 bits per pixel.
+/// Driver for the ILI9486 on the Waveshare 3.5" RPi LCD (A), 18 bits per pixel.
 pub struct TftDisplay<S: TftSpi> {
     tft_spi: S,
     width: u16,
     height: u16,
-    rotation: TFTRotate,
+    rotation: Rotate,
 }
 
 impl<S: TftSpi> TftDisplay<S> {
     pub fn new(tft_spi: S) -> Self {
         Self {
             tft_spi,
-            width: NATIVE_HEIGHT,
-            height: NATIVE_WIDTH,
-            rotation: TFTRotate::Degrees90,
+            width: NATIVE_WIDTH,
+            height: NATIVE_HEIGHT,
+            rotation: Rotate::Degrees0,
         }
     }
 
@@ -42,28 +46,38 @@ impl<S: TftSpi> TftDisplay<S> {
         self.height
     }
 
-    pub fn rotation(&self) -> TFTRotate {
+    pub fn rotation(&self) -> Rotate {
         self.rotation
     }
 
+    /// Init sequence from tft-spi-demo (the one that works on the board).
     pub fn initialize(&mut self) -> Result<()> {
         self.tft_spi.reset_pin();
 
         let spi = &mut self.tft_spi;
-        spi.write_command_delay(Command::SoftReset, Duration::from_millis(120))?;
+        spi.write_command_delay(Command::SoftReset, Duration::from_millis(150))?;
 
-        // Interface mode control: defaults
-        spi.write_reg(Command::InterfaceModeControl, &[0x00])?;
+        // Frame rate: 30 Hz, division ratio fosc, 17 clocks per line
+        let frs = 0b0001; // 30 Hz
+        let div = 0b0000; // fosc
+        let rtn = 0x11; // 17 clocks per line
+        spi.write_reg(Command::FrameRateControlNormal, &[(frs << 4) | div, rtn])?;
+        thread::sleep(Duration::from_millis(10));
+        spi.write_reg(Command::FrameRateControlIdle, &[div, rtn])?;
+        spi.write_reg(Command::FrameRateControlPartial, &[div, rtn])?;
 
-        spi.write_command_delay(Command::SleepOut, Duration::from_millis(250))?;
+        // Step-up circuit frequencies in normal mode: 4 H / 4 H
+        let dc0 = 0b0100;
+        let dc1 = 0b0100;
+        spi.write_reg(Command::PowerControl3, &[(dc1 << 4) | dc0])?;
 
-        // 16 bits / pixel (RGB565) for both DPI and DBI; the 16-bit shift register
-        // on this board can't do 18-bit color.
-        spi.write_reg(Command::InterfacePixelFormat, &[0x55])?;
-
-        // Power control 3 / VCOM (values from Waveshare's waveshare35a overlay)
-        spi.write_reg(Command::PowerControl3, &[0x44])?;
         spi.write_reg(Command::VcomControl1, &[0x00, 0x00, 0x00, 0x00])?;
+
+        // 18 bits / pixel for DPI and DBI (the only color depth ILI9486 supports over SPI)
+        let dpi = 0b0110;
+        let dbi = 0b0110;
+        spi.write_reg(Command::InterfacePixelFormat, &[(dpi << 4) | dbi])?;
+        spi.write_reg(Command::InterfaceModeControl, &[0x00])?;
 
         spi.write_reg(
             Command::PositiveGammaControl,
@@ -87,23 +101,21 @@ impl<S: TftSpi> TftDisplay<S> {
             ],
         )?;
 
-        self.set_rotation(self.rotation)?;
-
-        let spi = &mut self.tft_spi;
-        spi.write_command_delay(Command::NormalDisplayModeOn, Duration::from_millis(10))?;
+        spi.write_command_delay(Command::SleepOut, Duration::from_millis(120))?;
         spi.write_command_delay(Command::DisplayOn, Duration::from_millis(100))?;
+
+        self.set_rotation(self.rotation)?;
 
         Ok(())
     }
 
-    /// Sets the orientation. If the image comes out mirrored or upside down,
-    /// adjust the MX/MY bits for that case.
-    pub fn set_rotation(&mut self, rotation: TFTRotate) -> Result<()> {
+    /// Sets the orientation (MADCTL values from tft-spi-demo).
+    pub fn set_rotation(&mut self, rotation: Rotate) -> Result<()> {
         let (value, width, height) = match rotation {
-            TFTRotate::Degrees0 => (madctl::MX, NATIVE_WIDTH, NATIVE_HEIGHT),
-            TFTRotate::Degrees90 => (madctl::MV, NATIVE_HEIGHT, NATIVE_WIDTH),
-            TFTRotate::Degrees180 => (madctl::MY, NATIVE_WIDTH, NATIVE_HEIGHT),
-            TFTRotate::Degrees270 => (
+            Rotate::Degrees0 => (madctl::MY, NATIVE_WIDTH, NATIVE_HEIGHT),
+            Rotate::Degrees90 => (madctl::MV, NATIVE_HEIGHT, NATIVE_WIDTH),
+            Rotate::Degrees180 => (madctl::MX, NATIVE_WIDTH, NATIVE_HEIGHT),
+            Rotate::Degrees270 => (
                 madctl::MX | madctl::MY | madctl::MV,
                 NATIVE_HEIGHT,
                 NATIVE_WIDTH,
@@ -136,10 +148,10 @@ impl<S: TftSpi> TftDisplay<S> {
         self.tft_spi.write_command(Command::MemoryWrite)?;
 
         // One buffer full of the color, written as many times as needed.
-        let pixel = color.to_be_bytes();
+        let pixel = color.to_rgb666_bytes();
         let buffer: Vec<u8> = pixel.iter().copied().cycle().take(MAX_BUFFER_SIZE).collect();
 
-        let mut remaining = w as usize * h as usize * pixel.len();
+        let mut remaining = w as usize * h as usize * BYTES_PER_PIXEL;
         while remaining > 0 {
             let n = remaining.min(MAX_BUFFER_SIZE);
             self.tft_spi.write_data(&buffer[..n])?;

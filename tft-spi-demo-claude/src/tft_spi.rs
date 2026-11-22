@@ -10,19 +10,18 @@ use rppal::{
 
 use crate::tft_display::enums::Command;
 
-/// Low-level access to the Waveshare 3.5" RPi LCD (A).
+/// Low-level access to the ILI9486 on the Waveshare 3.5" RPi LCD (A).
 ///
-/// The board puts a 16-bit shift register in front of the ILI9486, so every
-/// SPI write must be a whole number of 16-bit words:
-/// - commands and command parameters are sent as `[0x00, byte]`
-/// - pixel data (RGB565) is sent as `[hi, lo]` per pixel
+/// 4-wire 8-bit SPI: DC low for a command byte, DC high for parameter and
+/// pixel bytes. Over SPI the ILI9486 only supports 18-bit color, so pixels are
+/// 3 bytes each (see `Color::to_rgb666_bytes`).
 pub trait TftSpi {
     fn reset_pin(&mut self);
-    /// Sends a command followed by its 8-bit parameters (each padded to 16 bits).
+    /// Sends a command followed by its parameter bytes.
     fn write_reg(&mut self, cmd: Command, params: &[u8]) -> spi::Result<usize>;
     fn write_command(&mut self, cmd: Command) -> spi::Result<usize>;
     fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> spi::Result<usize>;
-    /// Sends raw bytes with DC high (used for pixel data). Length must be even.
+    /// Sends raw bytes with DC high (parameters or pixel data).
     fn write_data(&mut self, data: &[u8]) -> spi::Result<usize>;
 }
 
@@ -73,9 +72,9 @@ struct InnerTftSpi {
 }
 
 impl InnerTftSpi {
-    /// 16 MHz is what the Waveshare `waveshare35a` overlay uses.
-    /// Drop this (e.g. to 4 MHz) if you see corruption with long jumper wires.
-    const SPI_CLOCK_SPEED: u32 = 16_000_000;
+    /// Same speed as tft-spi-demo. It's above the ILI9486 datasheet write-cycle
+    /// spec, so drop it (e.g. to 16 MHz) if you see corrupted pixels.
+    const SPI_CLOCK_SPEED: u32 = 31_200_000;
 
     /// Reset
     /// GPIO 25
@@ -128,9 +127,9 @@ impl InnerTftSpi {
 
     fn reset_pin(&mut self) {
         self.tft_rst.set_high();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(120));
         self.tft_rst.set_low();
-        thread::sleep(Duration::from_millis(10));
+        thread::sleep(Duration::from_millis(120));
         self.tft_rst.set_high();
         // ILI9486 needs up to 120 ms after reset before accepting commands
         thread::sleep(Duration::from_millis(120));
@@ -139,20 +138,17 @@ impl InnerTftSpi {
     fn write_reg(&mut self, cmd: Command, params: &[u8]) -> spi::Result<usize> {
         let mut bytes = self.write_command(cmd)?;
         if !params.is_empty() {
-            // Pad each 8-bit parameter to a 16-bit word: [0x00, p]
-            let padded: Vec<u8> = params.iter().flat_map(|&p| [0x00, p]).collect();
-            bytes += self.write_data(&padded)?;
+            bytes += self.write_data(params)?;
         }
         Ok(bytes)
     }
 
     fn write_command(&mut self, cmd: Command) -> spi::Result<usize> {
         self.dc_set_low();
-        self.spi_device.write(&[0x00, cmd as u8])
+        self.spi_device.write(&[cmd as u8])
     }
 
     fn write_data(&mut self, data: &[u8]) -> spi::Result<usize> {
-        debug_assert!(data.len() % 2 == 0, "16-bit bus: data length must be even");
         self.dc_set_high();
         self.spi_device.write(data)
     }
