@@ -56,6 +56,10 @@ struct Panel {
     gram_writes: Vec<u32>,
     /// Every command with its parameters, in order (pixel data not included)
     commands: Vec<(u8, Vec<u8>)>,
+    /// Delays requested after commands: (command, delay)
+    delays: Vec<(u8, Duration)>,
+    /// Hardware resets, as the number of commands sent before each one
+    resets: Vec<usize>,
 }
 
 /// Shared handle so the test can inspect the panel after the display has
@@ -96,7 +100,11 @@ const RAMWR: u8 = Command::MemoryWrite as u8;
 const MADCTL: u8 = Command::MemoryAccessControl as u8;
 
 impl TftSpi for MockSpi {
-    fn reset_pin(&mut self) {}
+    fn reset_pin(&mut self) {
+        let mut p = self.0.borrow_mut();
+        let sent = p.commands.len();
+        p.resets.push(sent);
+    }
 
     fn write_reg(&mut self, cmd: Command, params: &[u8]) -> Result<usize> {
         let n = self.write_command(cmd)?;
@@ -114,8 +122,10 @@ impl TftSpi for MockSpi {
         Ok(1)
     }
 
-    fn write_command_delay(&mut self, cmd: Command, _delay: Duration) -> Result<usize> {
-        self.write_command(cmd)
+    fn write_command_delay(&mut self, cmd: Command, delay: Duration) -> Result<usize> {
+        let n = self.write_command(cmd)?;
+        self.0.borrow_mut().delays.push((cmd as u8, delay));
+        Ok(n)
     }
 
     fn write_data(&mut self, data: &[u8]) -> Result<usize> {
@@ -656,6 +666,88 @@ fn rotation_address_bounds() {
         assert!(matches!(display.set_addr_window(0, 0, w - 1, h), Err(Error::Size { .. })), "{rotation:?}");
         assert_eq!(spi.0.borrow().commands.len(), sent_before, "{rotation:?}");
     }
+}
+
+// ---- initialization ----
+
+/// The init sequence from tft-spi-demo, which works on the actual panel.
+/// Pinned so changes to it are deliberate.
+#[test]
+fn initialize_sends_known_working_sequence() {
+    let spi = MockSpi::new(320, 480);
+    let mut display = TftDisplay::new(spi.clone());
+    display.initialize().unwrap();
+
+    let gamma_negative = vec![
+        0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75, 0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
+    ];
+    let expected: Vec<(u8, Vec<u8>)> = vec![
+        (0x01, vec![]),                 // soft reset
+        (0xB1, vec![0x10, 0x11]),       // frame rate, normal mode: 30 Hz, 17 clocks/line
+        (0xB2, vec![0x00, 0x11]),       // frame rate, idle mode
+        (0xB3, vec![0x00, 0x11]),       // frame rate, partial mode
+        (0xC2, vec![0x44]),             // power control 3
+        (0xC5, vec![0x00, 0x00, 0x00, 0x00]), // VCOM control
+        (0x3A, vec![0x66]),             // pixel format: 18 bits/pixel
+        (0xB0, vec![0x00]),             // interface mode control
+        (
+            0xE0, // positive gamma
+            vec![0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98, 0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D, 0x00],
+        ),
+        (0xE1, gamma_negative.clone()), // negative gamma
+        (0xE2, gamma_negative),         // digital gamma
+        (0x11, vec![]),                 // sleep out
+        (0x29, vec![]),                 // display on
+        (0x36, vec![0x88]),             // MADCTL for the default rotation (Degrees0)
+    ];
+
+    let p = spi.0.borrow();
+    assert_eq!(p.commands, expected);
+    assert_eq!(p.resets, vec![0], "one hardware reset, before any command");
+    assert!(p.pixel_transfers.is_empty(), "initialize sends no pixels");
+    assert_eq!((display.width(), display.height(), display.rotation()), (320, 480, Rotate::Degrees0));
+}
+
+/// The 3-byte pixels the driver sends only work in 18-bit mode.
+#[test]
+fn initialize_selects_18_bit_pixels() {
+    let spi = MockSpi::new(320, 480);
+    let mut display = TftDisplay::new(spi.clone());
+    display.initialize().unwrap();
+    let p = spi.0.borrow();
+    let format = p.commands.iter().find(|(cmd, _)| *cmd == Command::InterfacePixelFormat as u8);
+    assert_eq!(format, Some(&(0x3A, vec![0x66])), "0x66 = 18 bits/pixel (RGB666)");
+}
+
+/// ILI9486 timing: wait 5 ms after a soft reset and 120 ms after sleep out
+/// before sending more commands.
+#[test]
+fn initialize_waits_after_reset_and_sleep_out() {
+    let spi = MockSpi::new(320, 480);
+    let mut display = TftDisplay::new(spi.clone());
+    display.initialize().unwrap();
+    let p = spi.0.borrow();
+    let delay = |cmd: Command| {
+        p.delays
+            .iter()
+            .find(|(c, _)| *c == cmd as u8)
+            .map(|&(_, d)| d)
+            .unwrap_or_else(|| panic!("no delay after {cmd:?}"))
+    };
+    assert!(delay(Command::SoftReset) >= Duration::from_millis(5));
+    assert!(delay(Command::SleepOut) >= Duration::from_millis(120));
+}
+
+/// initialize keeps a rotation chosen beforehand.
+#[test]
+fn initialize_applies_current_rotation() {
+    let spi = MockSpi::new(480, 320);
+    let mut display = TftDisplay::new(spi.clone());
+    display.set_rotation(Rotate::Degrees270).unwrap();
+    display.initialize().unwrap();
+    let p = spi.0.borrow();
+    assert_eq!(p.commands.last(), Some(&(MADCTL, vec![0xE8])));
+    assert_eq!((display.width(), display.height()), (480, 320));
 }
 
 /// Changing rotation only affects what's drawn afterwards.
