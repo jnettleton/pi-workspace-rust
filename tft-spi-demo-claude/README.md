@@ -85,16 +85,20 @@ core clock to 200 MHz while the CPU is idle, and the SPI clock drops with it to
 leave the CPU idle, so they hit this, while text (many tiny transfers that
 keep the CPU busy) doesn't.
 
-Measured with `--bench` on a Pi 4 (the C++ port gives the same numbers):
+Measured with `--bench` on a Pi 4. The `core_freq_min=500` column is from the
+C++ port, which matches this version in the other two columns:
 
-| | Default (`ondemand`) | `core_freq_min=500` or `performance` governor |
-|---|---|---|
-| `fill_screen` | 165–413 ms, varies run to run | 166 ms |
-| `draw_image` | 413 ms | 167 ms |
-| `draw_text` (800 chars) | 242 ms | 238 ms |
+| | Default (`ondemand`) | `core_freq_min=500` (`ondemand`) | `performance` governor |
+|---|---|---|---|
+| `fill_screen` | 165–413 ms, varies run to run | 175 ms | 166 ms |
+| `draw_image` | 413 ms | 175 ms | 167 ms |
+| `draw_text` (800 chars) | 242 ms | 240 ms | 238 ms |
 
 `core_freq_min=500` fixes only the core clock, so the CPU still slows down
-when idle. To try it without rebooting, switch the governor for a while:
+when idle. That makes the kernel a little slower to start each row transfer
+(about 25–30 µs each), hence the extra 9 ms per full screen compared with the
+`performance` governor. To try the full speed without rebooting, switch the
+governor for a while:
 `echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor`
 (and `ondemand` to put it back).
 
