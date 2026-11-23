@@ -85,20 +85,28 @@ core clock to 200 MHz while the CPU is idle, and the SPI clock drops with it to
 leave the CPU idle, so they hit this, while text (many tiny transfers that
 keep the CPU busy) doesn't.
 
-Measured with `--bench` on a Pi 4, with one transfer per row (before transfers
-were batched; rerun `--bench` for current numbers):
+Measured with `--bench` on a Pi 4, with `core_freq_min=500` and the default
+`ondemand` governor. A full screen of data takes about 157 ms at 15.6 MHz:
 
-| | Default (`ondemand`) | `core_freq_min=500` (`ondemand`) | `performance` governor |
+| | This version | C++ port |
+|---|---|---|
+| `fill_screen` | 161 ms | 163 ms |
+| `draw_image` | 167 ms | 168 ms |
+| `draw_text` (800 chars) | 229 ms | 228 ms |
+
+How it got there (this version, sending one transfer per row at the time):
+
+| | Default (`ondemand`) | `core_freq_min=500` | `performance` governor |
 |---|---|---|---|
 | `fill_screen` | 165–413 ms, varies run to run | 166 ms | 166 ms |
 | `draw_image` | 413 ms | 167 ms | 167 ms |
 | `draw_text` (800 chars) | 242 ms | 242 ms | 238 ms |
 
-`core_freq_min=500` fixes only the core clock; the CPU governor still
-saves power when idle. This version still runs at full speed: its per-row
-work keeps the CPU busy enough that `ondemand` doesn't slow it down. (The C++
-port does less per row, lets the CPU slow down, and takes 175 ms.) To try
-the `performance` governor without rebooting:
+`core_freq_min=500` fixes only the core clock; the CPU governor still saves
+power when idle. Sending up to 1365 pixels per transfer (113 per full screen
+instead of 320) also cut the time spent starting transfers, which matters
+most when the CPU has slowed down: the C++ port went from 175 ms to 163 ms.
+To try the `performance` governor without rebooting:
 `echo performance | sudo tee /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor`
 (and `ondemand` to put it back).
 
