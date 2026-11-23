@@ -13,9 +13,14 @@ pub type Result<T> = result::Result<T, Error>;
 /// Bytes per pixel in 18-bit mode
 const BYTES_PER_PIXEL: usize = 3;
 
-// Pixels are sent one row per `write_data` call (at most 480 * 3 = 1440
-// bytes, 960 once the Pi's 16-bit bus turns them into RGB565), well under
-// spidev's 4096-byte limit.
+/// Most pixels per `write_data` call. spidev takes at most 4096 bytes per
+/// transfer by default, and 1365 pixels are 4095 bytes in 18-bit form (what
+/// the 8-bit bus sends; the 16-bit bus turns them into 2730 bytes of RGB565).
+/// Transfers needn't end at a row: the panel fills the address window
+/// continuously. Fewer, larger transfers matter on the Pi, because each one
+/// takes some time to start, more so when the CPU has slowed down.
+pub const MAX_TRANSFER_PIXELS: usize = 1365;
+const MAX_TRANSFER_BYTES: usize = MAX_TRANSFER_PIXELS * BYTES_PER_PIXEL;
 
 /// Native (portrait) panel size of the ILI9486
 const NATIVE_WIDTH: u16 = 320;
@@ -185,10 +190,14 @@ impl<S: TftSpi> TftDisplay<S> {
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
         self.tft_spi.write_command(Command::MemoryWrite)?;
 
-        // One row of the color, sent once per row
-        let row = color.to_rgb666_bytes().repeat(usize::from(w));
-        for _ in 0..h {
-            self.tft_spi.write_data(&row)?;
+        // One transfer's worth of the color, sent as many times as needed
+        let total = usize::from(w) * usize::from(h);
+        let chunk = color.to_rgb666_bytes().repeat(total.min(MAX_TRANSFER_PIXELS));
+        let mut left = total;
+        while left > 0 {
+            let n = left.min(MAX_TRANSFER_PIXELS);
+            self.tft_spi.write_data(&chunk[..n * BYTES_PER_PIXEL])?;
+            left -= n;
         }
 
         Ok(())
@@ -257,16 +266,22 @@ impl<S: TftSpi> TftDisplay<S> {
         let visible_bytes = usize::from(x1 - x0) * 3;
         let row_bytes = usize::from(width) * 3;
 
-        // One transfer per visible row
-        let mut buffer = Vec::with_capacity(visible_bytes);
+        // The visible rows one after another, in transfers of up to
+        // MAX_TRANSFER_PIXELS (which may end mid-row)
+        let mut buffer = Vec::with_capacity(MAX_TRANSFER_BYTES);
         // `chunks_exact` rather than `as_chunks` (Rust 1.88+) to build on older Pi toolchains
         #[allow(clippy::chunks_exact_to_as_chunks)]
         for row in 0..usize::from(y1 - y0) {
             let start = (src_y + row) * row_bytes + src_x * 3;
-            buffer.clear();
             for pixel in rgb[start..start + visible_bytes].chunks_exact(3) {
                 buffer.extend_from_slice(&Color::rgb(pixel[0], pixel[1], pixel[2]).to_rgb666_bytes());
+                if buffer.len() == MAX_TRANSFER_BYTES {
+                    self.tft_spi.write_data(&buffer)?;
+                    buffer.clear();
+                }
             }
+        }
+        if !buffer.is_empty() {
             self.tft_spi.write_data(&buffer)?;
         }
 
@@ -375,8 +390,9 @@ impl<S: TftSpi> TftDisplay<S> {
 
         self.set_addr_window(x, y, x + w - 1, y + h - 1)?;
         self.tft_spi.write_command(Command::MemoryWrite)?;
-        for row in buffer.chunks(usize::from(w) * BYTES_PER_PIXEL) {
-            self.tft_spi.write_data(row)?;
+        // Usually the whole cell in one transfer
+        for chunk in buffer.chunks(MAX_TRANSFER_BYTES) {
+            self.tft_spi.write_data(chunk)?;
         }
 
         Ok(())

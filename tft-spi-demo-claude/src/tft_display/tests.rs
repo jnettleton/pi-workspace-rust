@@ -11,8 +11,19 @@ use super::{
     font,
     mock::{MockSpi, GRAM_H, GRAM_W, MADCTL},
     shapes,
-    tft_display::{Gamma, TftDisplay},
+    tft_display::{Gamma, TftDisplay, MAX_TRANSFER_PIXELS},
 };
+
+/// Checks `total` pixels were sent in as few transfers as possible: every
+/// transfer holds MAX_TRANSFER_PIXELS except the last, which holds the rest.
+fn check_full_transfers(spi: &MockSpi, total: usize) {
+    let transfers = &spi.0.borrow().pixel_transfers;
+    let count = total.div_ceil(MAX_TRANSFER_PIXELS);
+    assert_eq!(transfers.len(), count, "transfers for {total} pixels");
+    let (last, full) = transfers.split_last().expect("at least one transfer");
+    assert!(full.iter().all(|&n| n == MAX_TRANSFER_PIXELS * 3), "full transfers: {full:?}");
+    assert_eq!(*last, (total - (count - 1) * MAX_TRANSFER_PIXELS) * 3, "last transfer");
+}
 
 /// A 480x320 landscape display on a mock panel.
 fn landscape() -> (TftDisplay<MockSpi>, MockSpi) {
@@ -106,10 +117,19 @@ fn full_screen_image_transfers() {
     display.draw_image(0, 0, 480, 320, &rgb).unwrap();
     check_placement(&spi, &rgb, 480, 320, 0, 0);
 
-    // One 1440-byte transfer per row, like tft-spi-demo
-    let transfers = &spi.0.borrow().pixel_transfers;
-    assert_eq!(transfers.len(), 320);
-    assert!(transfers.iter().all(|&n| n == 480 * 3));
+    // 113 transfers of up to 1365 pixels, not one per row
+    check_full_transfers(&spi, 480 * 320);
+}
+
+/// A clipped image still goes out in full transfers, which run across rows.
+#[test]
+fn clipped_image_transfers_span_rows() {
+    let rgb = gradient(300, 200);
+    let (mut display, spi) = landscape();
+    display.draw_image(-50, 250, 300, 200, &rgb).unwrap();
+    // 250 x 70 visible
+    check_placement(&spi, &rgb, 300, 200, -50, 250);
+    check_full_transfers(&spi, 250 * 70);
 }
 
 const BLACK: [u8; 3] = [0, 0, 0];
@@ -181,11 +201,22 @@ fn fill_screen_in_each_rotation() {
         let blue = Color::BLUE.to_rgb666_bytes();
         assert_eq!(check_frame(&spi, |_, _| blue), w * h, "{rotation:?}");
 
-        // One transfer per row, like draw_image
-        let transfers = &spi.0.borrow().pixel_transfers;
-        assert_eq!(transfers.len(), h, "{rotation:?}");
-        assert!(transfers.iter().all(|&n| n == w * 3), "{rotation:?}");
+        // Full transfers, like draw_image
+        check_full_transfers(&spi, w * h);
     }
+}
+
+/// Each character cell goes out in one transfer, not one per row.
+#[test]
+fn draw_text_sends_one_transfer_per_character() {
+    let (mut display, spi) = landscape();
+    display.draw_text(0, 0, "Hi!", Color::WHITE, Color::BLUE, 2).unwrap();
+    assert_eq!(spi.0.borrow().pixel_transfers, vec![12 * 16 * 3; 3]);
+
+    // A character too big for one transfer: size 10 is 60 x 80 = 4800 pixels
+    let (mut display, spi) = landscape();
+    display.draw_text(0, 0, "W", Color::WHITE, Color::BLUE, 10).unwrap();
+    check_full_transfers(&spi, 60 * 80);
 }
 
 #[test]
