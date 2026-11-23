@@ -29,6 +29,7 @@ const CALIBRATION_FILE: &str = "touch_calibration.txt";
 ///   tft-spi-demo-claude [--calibrate]      demo: shapes, text, touch drawing
 ///   tft-spi-demo-claude [--fill] <image>   show a JPEG or PNG and exit
 ///   tft-spi-demo-claude --colors           color gradients and exit
+///   tft-spi-demo-claude --bench            time full-screen drawing and exit
 ///
 /// `TFT_GAMMA=full|analog|none` picks the gamma tables sent at startup.
 pub fn run() -> Result<(), Box<dyn Error>> {
@@ -49,6 +50,10 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     println!("gamma: {gamma:?} (set TFT_GAMMA=full, analog or none to change)");
     display.set_gamma(gamma);
     display.initialize()?;
+
+    if has_flag("--bench") {
+        return bench(&mut display);
+    }
 
     if has_flag("--colors") {
         return color_test(&mut display);
@@ -105,6 +110,64 @@ pub fn run() -> Result<(), Box<dyn Error>> {
             last_point = Some(point);
         }
     }
+}
+
+/// Runs per benchmark in `--bench`
+const BENCH_RUNS: usize = 10;
+
+/// `--bench`: times full-screen fills, a full-screen image and a screen of
+/// text in landscape, `BENCH_RUNS` times each, and prints min/avg/max per run.
+/// The C++ port prints the same lines, so the two can be compared directly.
+fn bench(display: &mut Display) -> Result<(), Box<dyn Error>> {
+    display.set_rotation(Rotate::Degrees90)?;
+    let (w, h) = (display.width(), display.height());
+    println!("bench: {w}x{h}, {BENCH_RUNS} runs each");
+
+    // Full-screen fills, a different color each time
+    let colors = [Color::RED, Color::GREEN, Color::BLUE, Color::WHITE, Color::BLACK];
+    let times = time_runs(|i| display.fill_screen(colors[i % colors.len()]))?;
+    report("fill_screen", &times);
+
+    // A full-screen gradient image
+    let (uw, uh) = (usize::from(w), usize::from(h));
+    let mut rgb = Vec::with_capacity(uw * uh * 3);
+    for y in 0..uh {
+        for x in 0..uw {
+            rgb.extend_from_slice(&[(x * 255 / (uw - 1)) as u8, (y * 255 / (uh - 1)) as u8, 128]);
+        }
+    }
+    let times = time_runs(|_| display.draw_image(0, 0, w, h, &rgb))?;
+    report("draw_image", &times);
+
+    // A screen of size-2 text: one address window and transfer set per character
+    let line = "The quick brown fox jumps over the lazy ";
+    let rows = usize::from(h) / 16;
+    let text = vec![line; rows].join("\n");
+    let times = time_runs(|i| {
+        let (fg, bg) = if i % 2 == 0 { (Color::WHITE, Color::BLUE) } else { (Color::YELLOW, Color::BLACK) };
+        display.draw_text(0, 0, &text, fg, bg, 2)
+    })?;
+    report(&format!("draw_text ({} chars)", line.len() * rows), &times);
+    Ok(())
+}
+
+/// Times `BENCH_RUNS` calls of `f` (given the run number).
+fn time_runs<E>(mut f: impl FnMut(usize) -> Result<(), E>) -> Result<Vec<Duration>, E> {
+    let mut times = Vec::with_capacity(BENCH_RUNS);
+    for i in 0..BENCH_RUNS {
+        let start = Instant::now();
+        f(i)?;
+        times.push(start.elapsed());
+    }
+    Ok(times)
+}
+
+fn report(name: &str, times: &[Duration]) {
+    let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+    let min = times.iter().copied().map(ms).fold(f64::INFINITY, f64::min);
+    let max = times.iter().copied().map(ms).fold(0.0, f64::max);
+    let avg = times.iter().copied().map(ms).sum::<f64>() / times.len() as f64;
+    println!("  {name:<24} min {min:7.1} ms  avg {avg:7.1} ms  max {max:7.1} ms");
 }
 
 /// Landscape screen of gradients, dark (left) to bright (right): red, green,

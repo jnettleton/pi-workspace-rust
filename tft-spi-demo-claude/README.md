@@ -84,7 +84,12 @@ cargo run --release                     # demo: rotations, shapes, text, touch d
 cargo run --release -- --calibrate      # redo the touch calibration first
 cargo run --release -- photo.jpg        # show a picture (fit, with borders)
 cargo run --release -- --fill photo.jpg # show a picture filling the screen
+cargo run --release -- --bench          # time full-screen drawing (10 runs each) and exit
 ```
+
+`--bench` prints min/avg/max times for a full-screen fill, a full-screen
+image and a screen of size-2 text. The C++ port prints the same lines, so
+the two can be compared run for run.
 
 The touch calibration is saved to `touch_calibration.txt` in the current
 directory.
