@@ -79,6 +79,7 @@ Rotation is set with MADCTL (0x36), always with the BGR bit (`0x08`):
 On the Pi:
 
 ```
+cargo pi4-native                        # build only (alias for `cargo build --release`)
 cargo run --release                     # demo: rotations, shapes, text, touch drawing
 cargo run --release -- --calibrate      # redo the touch calibration first
 cargo run --release -- photo.jpg        # show a picture (fit, with borders)
